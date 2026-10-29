@@ -55,3 +55,5 @@ jobs:
           lake build Apex
       - run: uv sync --all-extras
       - run: uv run pytest -m lean
+      - name: Eval corpus scoreboard (fails on any false proven)
+        run: uv run python evals/run.py

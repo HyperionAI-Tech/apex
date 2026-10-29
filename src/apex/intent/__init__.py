@@ -1,1 +1,1 @@
-"""intent stage (not yet implemented; see handoff section 4)."""
+"""Intent: fusing docstrings, tests and specs into an Intent Model."""

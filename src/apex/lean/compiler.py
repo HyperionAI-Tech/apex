@@ -14,6 +14,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal
@@ -169,6 +170,49 @@ def _run(
         return None, stdout, stderr
 
 
+@dataclass
+class LeanRun:
+    code: int | None
+    """Process exit code; None when the run was killed at the timeout."""
+    stdout: str
+    stderr: str
+    duration_s: float
+
+    @property
+    def messages(self) -> list[tuple[LeanMessage, str]]:
+        return parse_lean_json(self.stdout)
+
+
+def run_lean(
+    text: str, project: LeanProject, timeout_s: float, *, keep_path: Path | None = None
+) -> LeanRun:
+    """Cold `lean --json` over `text` in a fresh file. Raises LeanUnavailable on tool failure.
+
+    This is plumbing, not a verdict: only `compile_and_audit` may interpret a run as a proof.
+    """
+    lean, env = project.lean_command()
+    tmp: tempfile.TemporaryDirectory[str] | None = None
+    if keep_path is not None:
+        keep_path.parent.mkdir(parents=True, exist_ok=True)
+        lean_path = keep_path
+    else:
+        tmp = tempfile.TemporaryDirectory(prefix="apex-lean-")
+        lean_path = Path(tmp.name) / "ApexCheck.lean"
+    try:
+        lean_path.write_text(text, encoding="utf-8")
+        started = time.monotonic()
+        try:
+            code, stdout, stderr = _run(
+                [str(lean), "--json", str(lean_path)], project.root, env, timeout_s
+            )
+        except OSError as e:
+            raise LeanUnavailable(f"failed to run lean: {e}") from e
+        return LeanRun(code, stdout, stderr, time.monotonic() - started)
+    finally:
+        if tmp is not None:
+            tmp.cleanup()
+
+
 def compile_and_audit(
     source: str,
     theorem_names: list[str],
@@ -185,38 +229,24 @@ def compile_and_audit(
     source_sha = sha256_text(source)
     try:
         project = project or LeanProject.locate()
-        lean, env = project.lean_command()
+        project.lean_command()  # fail fast, before any work, if Lean is missing
     except LeanUnavailable as e:
         return CompileResult(status="tool_error", source_sha256=source_sha, tool_error=str(e))
 
     findings = scan(source)
     text, footer_line = build_file(source, theorem_names)
 
-    tmp: tempfile.TemporaryDirectory[str] | None = None
-    if keep_dir is not None:
-        keep_dir.mkdir(parents=True, exist_ok=True)
-        lean_path = keep_dir / f"{source_sha[:16]}.lean"
-    else:
-        tmp = tempfile.TemporaryDirectory(prefix="apex-verdict-")
-        lean_path = Path(tmp.name) / "ApexVerdict.lean"
+    lean_path = keep_dir / f"{source_sha[:16]}.lean" if keep_dir is not None else None
     try:
-        lean_path.write_text(text, encoding="utf-8")
-        started = time.monotonic()
-        try:
-            code, stdout, stderr = _run(
-                [str(lean), "--json", str(lean_path)], project.root, env, timeout_s
-            )
-        except OSError as e:
-            return CompileResult(
-                status="tool_error",
-                source_sha256=source_sha,
-                guard_findings=findings,
-                tool_error=f"failed to run lean: {e}",
-            )
-        duration = time.monotonic() - started
-    finally:
-        if tmp is not None:
-            tmp.cleanup()
+        run = run_lean(text, project, timeout_s, keep_path=lean_path)
+    except LeanUnavailable as e:
+        return CompileResult(
+            status="tool_error",
+            source_sha256=source_sha,
+            guard_findings=findings,
+            tool_error=str(e),
+        )
+    code, stdout, stderr, duration = run.code, run.stdout, run.stderr, run.duration_s
 
     parsed = parse_lean_json(stdout)
     user_msgs = [m for m, _ in parsed if m.line < footer_line]

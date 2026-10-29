@@ -110,6 +110,7 @@
             "invariant",
             "equivalence",
             "termination",
+            "example",
             "other"
           ],
           "title": "Kind",

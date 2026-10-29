@@ -36,7 +36,8 @@ class Source(_Strict):
 
 class Property(_Strict):
     id: str
-    kind: Literal["postcondition", "invariant", "equivalence", "termination", "other"]
+    kind: Literal["postcondition", "invariant", "equivalence", "termination", "example", "other"]
+    """`example` is a concrete input/output pair mined from a doctest or a test assertion."""
     text: str
     formal_hint: str | None = None
     sources: list[Source] = Field(default_factory=list)

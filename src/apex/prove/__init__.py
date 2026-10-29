@@ -1,1 +1,1 @@
-"""prove stage (not yet implemented; see handoff section 4)."""
+"""Proof search: tactic tiers first, then (engine or host) model-written proofs."""

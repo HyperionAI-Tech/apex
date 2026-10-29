@@ -1,0 +1,87 @@
+# Eval corpus. Each case: a target, its category, an optional reference spec (P* theorems,
+# hand-written ground truth; `sorry` proofs are left for the tactic tiers), and the expected
+# verdict for every property, including the E* examples scaffold mines from doctests.
+#
+# Categories: known_good, planted_bug, conflict, out_of_scope, ai_generated.
+
+[[case]]
+target = "mathx.py::clamp"
+category = "known_good"
+spec = "specs/clamp.lean"
+expected = { E1 = "proven", E2 = "proven", P1 = "proven", P2 = "proven" }
+
+[[case]]
+target = "mathx.py::my_abs"
+category = "known_good"
+spec = "specs/my_abs.lean"
+expected = { E1 = "proven", P1 = "proven", P2 = "proven", P3 = "proven" }
+
+[[case]]
+target = "mathx.py::sign"
+category = "known_good"
+spec = "specs/sign.lean"
+expected = { P1 = "proven", P2 = "proven", P3 = "proven" }
+
+[[case]]
+target = "mathx.py::sum_list"
+category = "known_good"
+spec = "specs/sum_list.lean"
+expected = { E1 = "proven", P1 = "proven", P2 = "proven", P3 = "proven" }
+
+[[case]]
+target = "mathx.py::safe_div"
+category = "known_good"
+spec = "specs/safe_div.lean"
+expected = { E1 = "proven", E2 = "proven", P1 = "proven", P2 = "proven" }
+
+[[case]]
+target = "mathx.py::count_positive"
+category = "known_good"
+spec = "specs/count_positive.lean"
+expected = { P1 = "proven", P2 = "proven" }
+
+# Planted bugs reuse the reference statements of the correct function. A property the bug really
+# violates expects `refuted` (CrossHair, Phase 2) and must never come out proven; a property the
+# bug happens to preserve expects `proven`, because Lean is right to prove it.
+[[case]]
+target = "mathx_bugs.py::clamp"
+category = "planted_bug"
+spec = "specs/clamp.lean"
+expected = { P1 = "refuted", P2 = "refuted" }
+
+[[case]]
+target = "mathx_bugs.py::my_abs"
+category = "planted_bug"
+spec = "specs/my_abs.lean"
+# `if x < -1` still returns x or -x, so P2 holds for the buggy code too.
+expected = { P1 = "refuted", P2 = "proven", P3 = "refuted" }
+
+[[case]]
+target = "impure.py::logged_clamp"
+category = "out_of_scope"
+reason = "IMPURE_IO"
+
+[[case]]
+target = "impure.py::mean"
+category = "out_of_scope"
+reason = "FLOAT_SEMANTICS"
+
+[[case]]
+target = "impure.py::bump"
+category = "out_of_scope"
+reason = "IMPURE_IO"
+
+[[case]]
+target = "impure.py::roll"
+category = "out_of_scope"
+reason = "IMPURE_IO"
+
+[[case]]
+target = "impure.py::spawn"
+category = "out_of_scope"
+reason = "NEEDS_CONCURRENCY_TOOL"
+
+[[case]]
+target = "conflicts.py::double"
+category = "conflict"
+expected = { E1 = "contradiction", E2 = "contradiction" }

@@ -50,6 +50,10 @@ class ReasonCode(StrEnum):
     SPEC_CONFLICT = "SPEC_CONFLICT"
     NEEDS_CONCURRENCY_TOOL = "NEEDS_CONCURRENCY_TOOL"
     """Recommends TLA+; Apex does not integrate it."""
+    PROOF_REJECTED = "PROOF_REJECTED"
+    """Lean rejected the submitted proof (errors, or a disallowed axiom)."""
+    NO_STATEMENT = "NO_STATEMENT"
+    """The property has no Lean statement yet."""
 
 
 class ExitCode(IntEnum):

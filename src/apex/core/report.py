@@ -31,7 +31,7 @@ class Counterexample(_Strict):
     """Argument name -> Python `repr` of the value, so it can be replayed verbatim."""
     expected: str | None = None
     actual: str | None = None
-    found_by: Literal["crosshair", "hypothesis"]
+    found_by: Literal["crosshair", "hypothesis", "example"]
 
 
 class Gap(_Strict):
@@ -74,10 +74,21 @@ class PropertyResult(_Strict):
         return self
 
 
+class FidelitySummary(_Strict):
+    agree: bool
+    inputs_checked: int
+    mismatch: Counterexample | None = None
+
+
 class FunctionResult(_Strict):
     qualname: str
     file: str
     sha256: str
+    purity: Literal["pure", "impure", "unknown"] = "unknown"
+    gap: Gap | None = None
+    """Set when the whole function is out of scope (impure, or outside the translatable subset)."""
+    pure_core: str | None = None
+    fidelity: FidelitySummary | None = None
     properties: list[PropertyResult] = Field(default_factory=list)
 
 

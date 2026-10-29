@@ -1,1 +1,1 @@
-"""translate stage (not yet implemented; see handoff section 4)."""
+"""Python -> Lean model translation (MVP subset only)."""

@@ -1,1 +1,1 @@
-"""fidelity stage (not yet implemented; see handoff section 4)."""
+"""Fidelity bridge (Hypothesis) and refutation (CrossHair, Phase 2)."""

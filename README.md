@@ -5,8 +5,27 @@ docstring, tests, or just the source), turns that intent into Lean 4 theorems, a
 them. You get either a machine-checked proof or a gap report that says what could not be proven,
 why, and what would have to change.
 
-**Status: Week 1 (M0, the Lean harness).** Only the trust anchor exists so far: the cold verdict
-compiler, the axiom audit, the canary suite and `apex doctor`. Nothing here verifies Python yet.
+**Status: Phase 1 (the Python spine).** The deterministic verbs work end to end on the supported
+subset: `analyze`, `scaffold`, `prove --tactics-only`, `verify`, `review`. The eval corpus passes
+the M1 gate (6/6 known-good functions fully proven, zero false proven). No LLM is involved yet:
+statements come from a human or a coding agent, and proofs from the tactic tiers or a person.
+
+## Quick tour
+
+```sh
+apex analyze  mathx.py::clamp        # purity, Intent Model skeleton (doctests, tests), Lean model
+apex scaffold mathx.py::clamp        # .apex/lean/mathx/clamp/{Model,Spec}.lean
+# write properties as `theorem P1 ...` in Spec.lean, then:
+apex review   mathx.py::clamp        # statements in English + Lean, with review status
+apex review   mathx.py::clamp --approve P1,P2   # humans only: needs an interactive terminal
+apex prove    mathx.py::clamp --tactics-only    # tactic tiers fill open proofs, then verify
+apex verify   mathx.py::clamp        # cold compile + axiom audit + fidelity check -> verdicts
+```
+
+Verdicts and exit codes follow the handoff contract: `proven` needs an approved statement, a cold
+Lean compile with clean axioms, and a fidelity check in which the compiled Lean model agrees
+with the real Python on 200 Hypothesis-generated inputs. Without approval the best result is
+`proven_unreviewed` (exit 2).
 
 ## Invariants
 
@@ -55,12 +74,21 @@ The prelude (`lean/Apex/Prelude.lean`) is core-only on purpose: every verdict is
 so whatever the prelude imports is paid on every check. Generated files import only the Mathlib
 modules a given proof needs.
 
-## Tests
+## Spec files are a trust boundary
+
+The approved statement text is what a human signs off on, so nothing else in a spec may be able
+to change what it means. A spec may contain only imports and `theorem`/`lemma` declarations: no
+`def`, `instance`, `notation`, `attribute` or `set_option` (beyond a per-theorem heartbeat cap).
+The verdict file always sets `autoImplicit false`, so a typo in a statement is an error rather
+than a silently universally quantified variable.
+
+## Tests and evals
 
 ```sh
-uv run pytest -m "not lean"   # contracts, guard, parsers, skill spec conformance
-uv run pytest -m lean         # M0 canary suite: 10 good + 11 bad theorems, cold verdict path
-uv run python scripts/bench_repl.py   # warm REPL vs cold verdict latency
+uv run pytest -m "not lean"   # translator, purity, spec parser, review store, contracts, guard
+uv run pytest -m lean         # canaries (10 good + 11 bad) and end-to-end pipeline tests
+uv run python evals/run.py    # eval corpus + scoreboard; exits 1 on any false proven
+uv run python scripts/bench_repl.py   # warm REPL (~6 ms) vs cold verdict (~0.34 s)
 ```
 
 Each canary declares its expected outcome in its first line. Bad canaries that cheat
@@ -71,9 +99,18 @@ regression in the real trust anchor.
 ## Layout
 
 ```
-src/apex/core/     contracts: Verdict, IntentModel, Report, ApexConfig (+ JSON Schema export)
-src/apex/lean/     pinned project, guard, cold verdict compiler + axiom audit, REPL pool
-src/apex/cli/      Typer app: doctor, init, schema, dev compile
+src/apex/core/       contracts: Verdict, IntentModel, Report, ApexConfig (+ JSON Schema export)
+src/apex/analyze/    target resolution, supported types, purity classifier + pure-core slicer
+src/apex/intent/     Intent Model skeleton: doctest and test-assertion mining, conflicts
+src/apex/translate/  Python -> Lean model for the MVP subset; value <-> Lean literals
+src/apex/theorems/   spec-file parser (trust boundary) and the review store
+src/apex/prove/      tactic tiers, probed in one Lean run
+src/apex/fidelity/   Hypothesis bridge: compiled Lean model vs real Python
+src/apex/lean/       pinned project, guard, cold verdict compiler + axiom audit, REPL pool
+src/apex/report/     Rich and Markdown renderers
+src/apex/pipeline.py the deterministic verbs every surface calls
+src/apex/cli/        Typer app
+evals/               corpus (known-good, planted bugs, conflicts, out of scope) + runner
 lean/              pinned Lake project (Lean v4.35.0, Mathlib v4.35.0)
 skill/apex-verify/ canonical Agent Skill (skeleton; validated against the spec in CI)
 schemas/           exported JSON Schemas

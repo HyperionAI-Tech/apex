@@ -17,10 +17,10 @@ allowed-tools: Bash(apex:*) Bash(uv:*) Read
 
 # Apex verify
 
-> Status: skeleton. The host-mode workflow (analyze → draft statements → human approval →
-> prove → verify → refute → report) lands with the MCP server in Phase 4. Until then, only
-> `apex doctor` is available; tell the user that verification is not yet supported rather than
-> attempting it yourself.
+> Status: early. The deterministic verbs exist (`apex analyze`, `apex scaffold`,
+> `apex prove --tactics-only`, `apex verify`, `apex review`); the full host-mode workflow lands
+> with the MCP server in Phase 4. The supported Python subset is in
+> [references/LEAN_SUBSET.md](references/LEAN_SUBSET.md).
 
 ## Hard rules
 

@@ -56,7 +56,9 @@ class ReplPool:
         self.warmup_s: list[float] = []
         for _ in range(size):
             started = time.monotonic()
-            server = AutoLeanServer(config)
+            # Only the per-process hard limit applies. The system-wide check counts the OS file
+            # cache as used memory and refuses to start on most developer laptops.
+            server = AutoLeanServer(config, max_total_memory=1.0)
             resp = server.run(Command(cmd=header), timeout=600)
             env = getattr(resp, "env", None)
             if env is None:

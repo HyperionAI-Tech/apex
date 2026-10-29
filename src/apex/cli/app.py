@@ -2,17 +2,24 @@
 
 import json
 import subprocess
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, NoReturn
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from apex import __version__
 from apex.core.config import CONFIG_FILENAME
 from apex.core.verdict import ExitCode
 from apex.lean.project import LeanProject, LeanUnavailable, find_elan
+
+if TYPE_CHECKING:
+    from apex.core.report import Report
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -202,6 +209,246 @@ def dev_compile(
         raise typer.Exit(ExitCode.TOOL_ERROR)
     proved = all(t.outcome is TheoremOutcome.PROVED for t in result.theorems)
     raise typer.Exit(ExitCode.OK if proved else ExitCode.FAILURE)
+
+
+# ---- deterministic verbs ---------------------------------------------------------------------
+
+Target = Annotated[str, typer.Argument(help="path.py::function")]
+SpecOpt = Annotated[
+    Path | None, typer.Option("--spec", help="Spec file (default: .apex/lean/<mod>/<fn>/Spec.lean)")
+]
+MarkdownFlag = Annotated[bool, typer.Option("--markdown", help="Markdown table output.")]
+
+
+def _fail(as_json: bool, message: str) -> NoReturn:
+    if as_json:
+        typer.echo(json.dumps({"error": message}))
+    else:
+        err.print(f"[red]error:[/] {message}")
+    raise typer.Exit(ExitCode.TOOL_ERROR)
+
+
+@contextmanager
+def _tool_errors(as_json: bool) -> Iterator[None]:
+    from apex.analyze.target import TargetError
+    from apex.pipeline import ApexToolError
+
+    try:
+        yield
+    except (ApexToolError, TargetError, LeanUnavailable) as e:
+        _fail(as_json, str(e))
+
+
+@app.command()
+def analyze(target: Target, as_json: JsonFlag = False) -> None:
+    """Purity class, pure-core slice, and the Intent Model skeleton from docstrings and tests."""
+    from apex import pipeline
+
+    with _tool_errors(as_json):
+        result = pipeline.analyze(target)
+    if as_json:
+        typer.echo(result.model_dump_json(indent=2, by_alias=True))
+        return
+    intent = result.intent
+    console.print(
+        f"[bold]{intent.function.qualname}[/]  purity: {intent.purity.class_}  "
+        f"in scope: {result.in_scope}"
+    )
+    if result.gap:
+        console.print(f"  [yellow]{result.gap.reason_code}[/]: {result.gap.explanation}")
+        for step in result.gap.next_steps:
+            console.print(f"    · {step}")
+    if result.pure_core:
+        console.print("  pure core:")
+        console.print(result.pure_core, markup=False, highlight=False)
+    for p in intent.properties:
+        console.print(f"  {p.id} [{p.kind}] {p.text}  ({p.sources[0].type} {p.sources[0].loc})")
+    for c in intent.conflicts:
+        console.print(f"  [red]conflict[/] {', '.join(c.property_ids)}: {c.description}")
+    if result.lean_model:
+        console.print("  Lean model:")
+        console.print(result.lean_model, markup=False, highlight=False)
+
+
+@app.command()
+def scaffold(target: Target, as_json: JsonFlag = False) -> None:
+    """Write the Lean model and a spec skeleton (theorem stubs with TODO holes)."""
+    from apex import pipeline
+
+    with _tool_errors(as_json):
+        result = pipeline.scaffold(target, pipeline.Workspace.discover())
+    if as_json:
+        typer.echo(result.model_dump_json(indent=2))
+    else:
+        if result.model_path:
+            console.print(f"model: {result.model_path}  compiles: {result.model_compiles}")
+            state = "written" if result.spec_written else "exists, left untouched"
+            console.print(f"spec:  {result.spec_path}  ({state})")
+        if result.gap:
+            console.print(f"[yellow]{result.gap.reason_code}[/]: {result.gap.explanation}")
+    raise typer.Exit(ExitCode.OK if result.gap is None else ExitCode.GAPS)
+
+
+def _emit_report(report: "Report", as_json: bool, markdown: bool) -> NoReturn:
+    from apex.report.render import print_report, to_markdown
+
+    if as_json:
+        typer.echo(report.model_dump_json(indent=2))
+    elif markdown:
+        typer.echo(to_markdown(report))
+    else:
+        print_report(report, console)
+    raise typer.Exit(report.exit_code)
+
+
+@app.command()
+def verify(
+    targets: Annotated[list[str], typer.Argument(help="One or more path.py::function")],
+    spec: SpecOpt = None,
+    fidelity_examples: Annotated[int, typer.Option(help="Inputs for the fidelity check.")] = 200,
+    as_json: JsonFlag = False,
+    markdown: MarkdownFlag = False,
+) -> None:
+    """Cold compile, axiom audit and fidelity check of the spec's proofs, giving verdicts."""
+    from apex import pipeline
+
+    if spec is not None and len(targets) != 1:
+        _fail(as_json, "--spec needs exactly one target")
+    with _tool_errors(as_json):
+        report = pipeline.verify(
+            targets,
+            pipeline.Workspace.discover(),
+            spec_paths={targets[0]: spec} if spec else None,
+            fidelity_n=fidelity_examples,
+        )
+    _emit_report(report, as_json, markdown)
+
+
+@app.command()
+def prove(
+    target: Target,
+    tactics_only: Annotated[
+        bool, typer.Option("--tactics-only", help="No LLM: tactic tiers.")
+    ] = False,
+    spec: SpecOpt = None,
+    as_json: JsonFlag = False,
+    markdown: MarkdownFlag = False,
+) -> None:
+    """Fill open proofs with the tactic tiers, write them into the spec, then verify."""
+    from apex import pipeline
+
+    if not tactics_only:
+        _fail(
+            as_json,
+            "engine-mode proving needs a model provider (Phase 3); use "
+            "--tactics-only, or write proofs yourself and run `apex verify`",
+        )
+    ws = pipeline.Workspace.discover()
+    with _tool_errors(as_json):
+        result = pipeline.prove_tactics(target, ws, spec_path=spec)
+        if not as_json and not markdown:
+            closed = ", ".join(result.closed) or "none"
+            console.print(
+                f"tactic tiers closed: {closed}; still open: "
+                f"{', '.join(result.open) or 'none'}  ({result.duration_s}s)"
+            )
+        report = pipeline.verify([target], ws, spec_paths={target: spec} if spec else None)
+    _emit_report(report, as_json, markdown)
+
+
+@app.command()
+def review(
+    target: Target,
+    approve: Annotated[
+        str | None, typer.Option("--approve", help="Comma-separated property IDs to approve.")
+    ] = None,
+    spec: SpecOpt = None,
+    as_json: JsonFlag = False,
+) -> None:
+    """Show statements in English and Lean with review status; --approve records approval.
+
+    Approval demands an interactive terminal, so a coding agent's shell cannot approve on a
+    human's behalf.
+    """
+    from apex import pipeline
+    from apex.analyze.target import load_function
+    from apex.theorems.review import current_reviewer
+
+    ws = pipeline.Workspace.discover()
+    with _tool_errors(as_json):
+        info = load_function(target)
+        spec_path = spec or ws.spec_path(info)
+        parsed = pipeline.load_spec(spec_path)
+    store, fid = ws.review_store, pipeline.function_id(info)
+    rows = [
+        (d, store.status(fid, info.sha256, d.name, d.statement_sha256)) for d in parsed.properties
+    ]
+
+    if approve is None:
+        if as_json:
+            typer.echo(
+                json.dumps(
+                    [
+                        {
+                            "id": d.name,
+                            "english": d.doc,
+                            "lean": d.full_statement,
+                            "status": r.status,
+                            "reviewer": r.reviewer,
+                        }
+                        for d, r in rows
+                    ],
+                    indent=2,
+                )
+            )
+            return
+        for d, r in rows:
+            console.print(f"[bold]{d.name}[/] {escape(f'[{r.status}]')}  {escape(d.doc or '')}")
+            console.print(f"    {d.full_statement}", markup=False, highlight=False)
+        return
+
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        _fail(
+            as_json,
+            "approval requires an interactive terminal. Ask the user to run "
+            f"`apex review {target} --approve {approve}` themselves.",
+        )
+    ids = [i.strip() for i in approve.split(",") if i.strip()]
+    chosen = [(d, r) for d, r in rows if d.name in ids]
+    if missing := set(ids) - {d.name for d, _ in chosen}:
+        _fail(as_json, f"no such properties in {spec_path}: {', '.join(sorted(missing))}")
+    reviewer = current_reviewer()
+    console.print(
+        f"You ({reviewer}) are approving these statements as the intended meaning "
+        f"of {fid}. Proofs about them will be reported as [bold]proven[/]."
+    )
+    for d, _ in chosen:
+        console.print(f"\n[bold]{d.name}[/]  {escape(d.doc or '')}")
+        console.print(f"    {d.full_statement}", markup=False, highlight=False)
+    if typer.prompt("\nType 'approve' to confirm") != "approve":
+        _fail(as_json, "not approved")
+    for d, _ in chosen:
+        store.approve(
+            qualname=fid,
+            property_id=d.name,
+            statement=d.full_statement,
+            function_sha256=info.sha256,
+            statement_sha256=d.statement_sha256,
+            reviewer=reviewer,
+        )
+    console.print(f"[green]approved[/] {', '.join(d.name for d, _ in chosen)} in {store.path}")
+
+
+@app.command()
+def report(as_json: JsonFlag = False, markdown: MarkdownFlag = False) -> None:
+    """Show the last report."""
+    from apex.core.report import Report
+    from apex.pipeline import Workspace
+
+    path = Workspace.discover().last_report
+    if not path.is_file():
+        _fail(as_json, "no report yet; run `apex verify` first")
+    _emit_report(Report.model_validate_json(path.read_text()), as_json, markdown)
 
 
 def main() -> None:

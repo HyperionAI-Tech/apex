@@ -30,7 +30,8 @@
         "found_by": {
           "enum": [
             "crosshair",
-            "hypothesis"
+            "hypothesis",
+            "example"
           ],
           "title": "Found By",
           "type": "string"
@@ -50,12 +51,64 @@
       "title": "Counterexample",
       "type": "object"
     },
+    "FidelitySummary": {
+      "additionalProperties": false,
+      "properties": {
+        "agree": {
+          "title": "Agree",
+          "type": "boolean"
+        },
+        "inputs_checked": {
+          "title": "Inputs Checked",
+          "type": "integer"
+        },
+        "mismatch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Counterexample"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "agree",
+        "inputs_checked"
+      ],
+      "title": "FidelitySummary",
+      "type": "object"
+    },
     "FunctionResult": {
       "additionalProperties": false,
       "properties": {
+        "fidelity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FidelitySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "file": {
           "title": "File",
           "type": "string"
+        },
+        "gap": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Gap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "properties": {
           "items": {
@@ -63,6 +116,28 @@
           },
           "title": "Properties",
           "type": "array"
+        },
+        "pure_core": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pure Core"
+        },
+        "purity": {
+          "default": "unknown",
+          "enum": [
+            "pure",
+            "impure",
+            "unknown"
+          ],
+          "title": "Purity",
+          "type": "string"
         },
         "qualname": {
           "title": "Qualname",
@@ -258,7 +333,9 @@
         "BUDGET_EXHAUSTED",
         "SPEC_AMBIGUOUS",
         "SPEC_CONFLICT",
-        "NEEDS_CONCURRENCY_TOOL"
+        "NEEDS_CONCURRENCY_TOOL",
+        "PROOF_REJECTED",
+        "NO_STATEMENT"
       ],
       "title": "ReasonCode",
       "type": "string"

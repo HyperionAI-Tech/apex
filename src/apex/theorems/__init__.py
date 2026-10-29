@@ -1,1 +1,1 @@
-"""theorems stage (not yet implemented; see handoff section 4)."""
+"""Statement handling: spec files and the human review store."""

@@ -1,1 +1,1 @@
-"""report stage (not yet implemented; see handoff section 4)."""
+"""Report building and renderers: rich, json, markdown (SARIF later)."""
