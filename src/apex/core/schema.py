@@ -15,6 +15,7 @@ from apex.intent.proposals import ProposalCheck, ProposalSet
 from apex.lean.compiler import CompileResult
 from apex.pipeline import AnalyzeResult, ProveResult, ScaffoldResult
 from apex.report.explain import AdviceList
+from apex.skill.install import SkillInstallResult
 
 CONTRACTS: dict[str, type[BaseModel]] = {
     "intent_model": IntentModel,
@@ -34,6 +35,7 @@ CONTRACTS: dict[str, type[BaseModel]] = {
     "advice": AdviceList,
     "schema_export": SchemaExport,
     "tool_error": ToolErrorOutput,
+    "install_result": SkillInstallResult,
 }
 
 # Which schema each command's `--json` output follows (on exit 3, always `tool_error`).
@@ -54,6 +56,8 @@ CLI_OUTPUTS: dict[str, str] = {
     "intent propose": "proposal_check",
     "intent submit": "proposal_check",
     "dev compile": "lean_compile_result",
+    "mcp install": "install_result",
+    "skill install": "install_result",
 }
 
 

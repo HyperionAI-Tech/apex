@@ -26,6 +26,7 @@ from apex.core.intent import Conflict, IntentModel, Property
 from apex.core.report import (
     FunctionResult,
     Gap,
+    LeanError,
     ProofArtifact,
     PropertyResult,
     Provenance,
@@ -49,7 +50,7 @@ from apex.intent.proposals import (
 )
 from apex.intent.source import mine_source
 from apex.intent.tests import mine_tests
-from apex.lean.compiler import TheoremOutcome, compile_and_audit, run_lean
+from apex.lean.compiler import LeanMessage, TheoremOutcome, compile_and_audit, run_lean
 from apex.lean.project import LeanProject
 from apex.prove.tactics import probe
 from apex.theorems.draft import DraftError, draft_property
@@ -59,6 +60,7 @@ from apex.translate.lean import FunctionSig, LeanModel, TranslationError, signat
 from apex.translate.literals import LiteralError, to_lean
 
 if TYPE_CHECKING:
+    from apex.core.outputs import ReviewStatus
     from apex.llm.providers import Provider
 
 FILE_HEADER = "import Apex.Prelude\n"
@@ -546,6 +548,43 @@ def verdict_file(model: LeanModel, spec: Spec, decl: SpecDecl | None) -> str:
     )
 
 
+MAX_LEAN_ERRORS = 5
+
+
+def _lean_errors(
+    messages: list[LeanMessage],
+    model: LeanModel,
+    spec: Spec,
+    decl: SpecDecl,
+    spec_path: Path,
+    lean_file: str | None,
+) -> list[LeanError]:
+    """Map errors in a verdict file back to the spec file the author edits, where possible."""
+    spec_text = spec_path.read_text() if spec_path.is_file() else ""
+    vtext = verdict_file(model, spec, decl)
+    blocks: list[tuple[int, int, int]] = []  # (verdict line, number of lines, spec line)
+    for d in [*spec.helpers, decl]:
+        body = d.text.rstrip("\n")
+        v_at, s_at = vtext.find(body), spec_text.find(body)
+        if v_at >= 0 and s_at >= 0:
+            blocks.append(
+                (
+                    vtext[:v_at].count("\n") + 1,
+                    body.count("\n") + 1,
+                    spec_text[:s_at].count("\n") + 1,
+                )
+            )
+    out = []
+    for m in messages[:MAX_LEAN_ERRORS]:
+        where = next(((v, sl) for v, n, sl in blocks if v <= m.line < v + n and sl), None)
+        if where:
+            file, ln = str(spec_path), where[1] + (m.line - where[0])
+        else:
+            file, ln = lean_file or "verdict file", m.line
+        out.append(LeanError(file=file, line=ln, column=m.column, message=m.message, goal=m.goal))
+    return out
+
+
 def load_spec(path: Path) -> Spec:
     if not path.is_file():
         raise ApexToolError(f"no spec file at {path}; run `apex scaffold` first")
@@ -778,6 +817,7 @@ def _verify_function(
                     explanation=detail,
                     next_steps=steps,
                 ),
+                lean_errors=_lean_errors(res.errors, model, spec, decl, spec_path, res.lean_file),
             )
 
     # Stage 6: a proof only stands if the model it is about matches the real Python.
@@ -1063,8 +1103,10 @@ _SKIP_DIRS = {".git", ".apex", ".venv", "venv", "node_modules", "__pycache__", "
 
 
 def _is_test_file(path: Path) -> bool:
-    return path.name.startswith("test_") or path.name.endswith("_test.py") or (
-        path.name == "conftest.py"
+    return (
+        path.name.startswith("test_")
+        or path.name.endswith("_test.py")
+        or (path.name == "conftest.py")
     )
 
 
@@ -1219,3 +1261,28 @@ def check(
         deadline=deadline,
     )
     return CheckRun(report, steps)
+
+
+# ---- review status (read-only; approval is CLI + TTY only) -----------------------------------
+
+
+def review_status(target: str, ws: Workspace, spec_path: Path | None = None) -> "ReviewStatus":
+    from apex.core.outputs import ReviewEntry, ReviewStatus
+
+    info = load_function(target)
+    spec_path = spec_path or ws.spec_path(info)
+    spec = load_spec(spec_path)
+    fid = function_id(info)
+    entries = []
+    for d in spec.properties:
+        r = ws.review_store.status(fid, info.sha256, d.name, d.statement_sha256)
+        entries.append(
+            ReviewEntry(
+                id=d.name,
+                english=d.doc,
+                lean=d.full_statement,
+                status=r.status,
+                reviewer=r.reviewer,
+            )
+        )
+    return ReviewStatus(target=target, spec_path=str(spec_path), statements=entries)

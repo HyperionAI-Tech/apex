@@ -1,1 +1,1 @@
-"""mcp stage (not yet implemented; see handoff section 4)."""
+"""The MCP server: the deterministic verbs as typed tools (`apex mcp`)."""

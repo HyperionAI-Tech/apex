@@ -1,0 +1,7 @@
+# Optional Codex sidecar (UI metadata). The portable skill is SKILL.md; nothing here changes it.
+interface:
+  display_name: "Apex verify"
+  short_description: "Prove or refute Python functions with Lean 4; verdicts come from Apex"
+  default_prompt: "Use the apex-verify skill to formally verify this function and report Apex's verdicts verbatim."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,12 @@
+{
+  "name": "apex-verify",
+  "version": "0.1.0.dev0",
+  "mcpServers": {
+    "apex": {
+      "command": "apex",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

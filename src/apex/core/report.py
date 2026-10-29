@@ -34,6 +34,17 @@ class Counterexample(_Strict):
     found_by: Literal["crosshair", "hypothesis", "example"]
 
 
+class LeanError(_Strict):
+    """One Lean error on a rejected proof, positioned in the file the author edits."""
+
+    file: str
+    """The spec file when the error is in a theorem or lemma there; else the kept verdict file."""
+    line: int
+    column: int
+    message: str
+    goal: str | None = None
+
+
 class Gap(_Strict):
     reason_code: ReasonCode
     explanation: str
@@ -56,6 +67,8 @@ class PropertyResult(_Strict):
     counterexample: Counterexample | None = None
     added_preconditions: list[str] = Field(default_factory=list)
     gap: Gap | None = None
+    lean_errors: list[LeanError] = Field(default_factory=list)
+    """For a proof Lean rejected: its errors with line, column and goal state (first few)."""
     provenance: Provenance = Field(default_factory=Provenance)
 
     @model_validator(mode="after")

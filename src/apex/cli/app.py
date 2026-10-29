@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from apex.core.report import Report
     from apex.intent.proposals import ProposalCheck
     from apex.pipeline import Workspace
+    from apex.skill.install import SkillInstallResult
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -675,22 +676,8 @@ def review(
 
     if approve is None:
         if as_json:
-            from apex.core.outputs import ReviewEntry, ReviewStatus
-
-            status = ReviewStatus(
-                target=target,
-                spec_path=str(spec_path),
-                statements=[
-                    ReviewEntry(
-                        id=d.name,
-                        english=d.doc,
-                        lean=d.full_statement,
-                        status=r.status,
-                        reviewer=r.reviewer,
-                    )
-                    for d, r in rows
-                ],
-            )
+            with _tool_errors(as_json):
+                status = pipeline.review_status(target, ws, spec_path)
             typer.echo(status.model_dump_json(indent=2))
             return
         for d, r in rows:
@@ -802,6 +789,95 @@ def suggest(
     """Concrete code or spec changes for everything not proven in the last report, with a
     regression test for each counterexample."""
     _advice("suggest", target, prop, as_json)
+
+
+# ---- surfaces: MCP server and Agent Skill ---------------------------------------------------
+
+mcp_app = typer.Typer(
+    help="The MCP server: the deterministic verbs as typed tools over stdio.",
+    invoke_without_command=True,
+)
+app.add_typer(mcp_app, name="mcp")
+skill_app = typer.Typer(help="The apex-verify Agent Skill.", no_args_is_help=True)
+app.add_typer(skill_app, name="skill")
+
+HarnessOpt = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--harness",
+        help="claude, codex, gemini, cursor, vscode or all (repeatable; default: all).",
+    ),
+]
+UserFlag = Annotated[
+    bool, typer.Option("--user", help="Install into home-directory locations, not the project.")
+]
+
+
+def _harnesses(values: list[str] | None) -> list[str]:
+    from apex.skill.install import HARNESSES
+
+    if not values or "all" in values:
+        return list(HARNESSES)
+    return values
+
+
+def _emit_install(result: "SkillInstallResult", as_json: bool) -> NoReturn:
+    if as_json:
+        typer.echo(result.model_dump_json(indent=2))
+    else:
+        for path in result.written:
+            console.print(f"wrote {path}")
+        for path in result.unchanged:
+            console.print(f"[dim]unchanged {path}[/]")
+        for why in result.refused:
+            console.print(f"[yellow]left alone[/] {escape(why)}")
+    raise typer.Exit(ExitCode.OK if not result.refused else ExitCode.GAPS)
+
+
+@mcp_app.callback()
+def mcp(ctx: typer.Context) -> None:
+    """Run the MCP server on stdio (what a harness starts). `apex mcp install` configures one."""
+    if ctx.invoked_subcommand is None:
+        from apex.mcp.server import main as serve
+
+        serve()
+
+
+@mcp_app.command("install")
+def mcp_install(
+    harness: HarnessOpt = None, user: UserFlag = False, as_json: JsonFlag = False
+) -> None:
+    """Merge an `apex` entry into each harness's MCP config (never overwrites other entries)."""
+    from apex.skill.install import InstallError, install_mcp
+
+    try:
+        result = install_mcp(_harnesses(harness), user=user)
+    except InstallError as e:
+        _fail(as_json, str(e))
+    _emit_install(result, as_json)
+
+
+@skill_app.command("install")
+def skill_install(
+    harness: HarnessOpt = None,
+    user: UserFlag = False,
+    with_mcp: Annotated[
+        bool, typer.Option("--with-mcp", help="Also write each harness's MCP config entry.")
+    ] = False,
+    as_json: JsonFlag = False,
+) -> None:
+    """Install apex-verify: one copy in .agents/skills, linked from .claude/skills.
+
+    Refuses to replace a skill of the same name that Apex did not install. Prints every file it
+    writes.
+    """
+    from apex.skill.install import InstallError, install_skill
+
+    try:
+        result = install_skill(_harnesses(harness), user=user, with_mcp=with_mcp)
+    except InstallError as e:
+        _fail(as_json, str(e))
+    _emit_install(result, as_json)
 
 
 def main() -> None:

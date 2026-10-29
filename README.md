@@ -5,11 +5,12 @@ docstring, tests, or just the source), turns that intent into Lean 4 theorems, a
 them. You get either a machine-checked proof or a gap report that says what could not be proven,
 why, and what would have to change.
 
-**Status: Phase 3 (CLI + engine mode).** `apex check` runs the whole pipeline over a file or a
-package; with a model configured, the model formalizes English intent and proposes proofs that
-Lean checks, with Lean's errors fed back to it. Reports render as Rich, JSON, Markdown and SARIF;
-every command's `--json` output has a published schema; the exit-code contract is tested through
-the installed binary. Without a model every deterministic step still runs.
+**Status: Phase 4 (MCP server + Agent Skill).** `apex mcp` serves the deterministic verbs as
+typed tools; `apex skill install` puts the apex-verify skill and MCP config where each coding
+harness looks. Smoke matrix: Claude Code (MCP channel) and Codex (CLI channel) each auto-activate
+the skill from a natural request, reach `proven_unreviewed` on clamp, `refuted` with a
+counterexample on the planted off-by-one, and close the loop (read the counterexample, fix the
+code, re-verify) with nothing refuted. Phase 3 (`apex check`, model proofs, SARIF) is underneath.
 
 ## Quick tour
 
@@ -51,6 +52,42 @@ with the real Python on 200 Hypothesis-generated inputs. Without approval the be
 Failures always win over gaps. A function that is out of scope, or has no intent at all, counts
 as a gap, so exit 0 is never vacuous. Usage errors and crashes exit 3, never Click's 2 or
 Python's 1, which CI would read as "gaps" and "refuted".
+
+## Inside a coding agent: MCP server and Agent Skill
+
+```sh
+apex skill install                    # .agents/skills/apex-verify, linked from .claude/skills
+apex skill install --with-mcp         # ... and the `apex` MCP entry in each harness's config
+apex skill install --harness claude --harness codex --user   # home-directory locations
+apex mcp                              # the stdio server a harness starts
+```
+
+The skill (`skill/apex-verify/`, one canonical folder following the Agent Skills spec) teaches any
+coding agent the host-mode loop: analyze, formalize intent, scaffold, get human approval, prove,
+refute, report. It uses the `apex_*` MCP tools when the harness has them and the CLI through
+`scripts/apex_run.py` when it does not, so a shell is enough. One copy in `.agents/skills` serves
+Codex, Gemini CLI, Cursor and VS Code / Copilot; `.claude/skills/apex-verify` links to it.
+
+| `--harness` | Skill directory (project / `--user`) | MCP config written by `--with-mcp` |
+|---|---|---|
+| `claude` | `.claude/skills` / `~/.claude/skills` | `.mcp.json` / `~/.claude.json` |
+| `codex` | `.agents/skills` / `~/.agents/skills` | `~/.codex/config.toml` (`[mcp_servers.apex]`) |
+| `gemini` | `.agents/skills` / `~/.agents/skills` | `.gemini/settings.json` / `~/.gemini/settings.json` |
+| `cursor` | `.agents/skills` (project only) | `.cursor/mcp.json` |
+| `vscode` | `.agents/skills` (project only) | `.vscode/mcp.json` (`servers`) |
+
+Config files are merged, never overwritten: other servers and keys are kept, an `apex` entry
+that is not Apex's is left alone and reported, TOML is appended so comments survive, and a skill
+folder Apex did not install is never replaced. The command prints every file it writes.
+
+The MCP tools mirror the deterministic verbs (`apex_analyze`, `apex_intent_submit`,
+`apex_scaffold`, `apex_prove`, `apex_verify`, `apex_refute`, `apex_explain`, `apex_suggest`,
+`apex_review_status`, and `apex_check` when a provider is configured). No tool can approve a
+statement. `apex_verify` returns, for each rejected proof, Lean's errors with the line in the
+spec file the agent edits and the goal state.
+
+`packaging/` holds a Claude Code plugin and a Gemini CLI extension, generated from the canonical
+folder (`uv run python -m apex.skill.packaging`; a test fails if they drift).
 
 ## Invariants
 
@@ -229,9 +266,13 @@ src/apex/lean/       pinned project, guard, cold verdict compiler + axiom audit,
 src/apex/report/     Rich, Markdown and SARIF renderers; explain / suggest
 src/apex/pipeline.py the deterministic verbs every surface calls, and `check` (engine mode)
 src/apex/cli/        Typer app
+src/apex/mcp/        MCP server (stdio): the deterministic verbs as typed tools
+src/apex/skill/      `apex skill install` / `apex mcp install`; packaging generator
 evals/               corpus (known-good, planted bugs, conflicts, out of scope) + runner
 lean/              pinned Lake project (Lean v4.35.0, Mathlib v4.35.0)
-skill/apex-verify/ canonical Agent Skill (skeleton; validated against the spec in CI)
+skill/apex-verify/ canonical Agent Skill (validated against the spec in CI)
+packaging/         generated Claude Code plugin and Gemini CLI extension
+evals/smoke/       harness smoke matrix (real agents, headless)
 schemas/           exported JSON Schemas
 tests/canaries/    M0 canary theorems
 ```

@@ -12,6 +12,7 @@ dependencies = [
     "rich>=13.7",
     "hypothesis>=6.100",
     "crosshair-tool>=0.0.80",
+    "mcp>=2.3",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +55,7 @@ packages = ["src/apex"]
 "lean/lake-manifest.json" = "apex/_lean/lake-manifest.json"
 "lean/Apex.lean" = "apex/_lean/Apex.lean"
 "lean/Apex" = "apex/_lean/Apex"
+"skill/apex-verify" = "apex/_skill/apex-verify"
 
 [tool.hatch.build.targets.sdist]
 include = ["src/apex", "lean/lean-toolchain", "lean/lakefile.toml", "lean/lake-manifest.json",

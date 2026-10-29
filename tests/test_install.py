@@ -90,3 +90,13 @@ def test_installed_exit_codes(installed: tuple[Path, dict[str, str]]) -> None:
     assert run(installed, "--bogus").returncode == 3
     out = run(installed, "verify", "mathx.py::clamp", "--json")
     assert out.returncode == 3 and "apex init" in json.loads(out.stdout)["error"]
+
+
+def test_installed_package_installs_its_skill(installed: tuple[Path, dict[str, str]]) -> None:
+    _, env = installed
+    out = run(installed, "skill", "install", "--harness", "claude", "--harness", "codex", "--json")
+    assert out.returncode == 0, out.stderr
+    work = Path(env["PWD"])
+    skill = work / ".agents" / "skills" / "apex-verify"
+    assert (skill / "SKILL.md").is_file() and (skill / "scripts" / "apex_run.py").is_file()
+    assert (work / ".claude" / "skills" / "apex-verify" / "SKILL.md").is_file()

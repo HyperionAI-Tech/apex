@@ -1,0 +1,8 @@
+{
+  "name": "apex-verify",
+  "version": "0.1.0.dev0",
+  "description": "Formally verify Python functions with Lean 4: proven / refuted / gap verdicts from Apex.",
+  "author": {
+    "name": "hyperion-ai"
+  }
+}
