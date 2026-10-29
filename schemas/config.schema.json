@@ -39,11 +39,33 @@
       "title": "Ignore",
       "type": "array"
     },
+    "llm_timeout_s": {
+      "default": 300,
+      "description": "Per LLM call.",
+      "exclusiveMinimum": 0,
+      "title": "Llm Timeout S",
+      "type": "number"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Model for the provider; unset means the provider's default.",
+      "title": "Model"
+    },
     "model_provider": {
       "default": "none",
       "enum": [
         "anthropic",
         "openai",
+        "claude-code",
+        "codex",
         "host",
         "none"
       ],
@@ -55,6 +77,13 @@
       "description": "Per theorem.",
       "exclusiveMinimum": 0,
       "title": "Proof Budget S",
+      "type": "number"
+    },
+    "refute_budget_s": {
+      "default": 10,
+      "description": "CrossHair time per property, on the real Python.",
+      "exclusiveMinimum": 0,
+      "title": "Refute Budget S",
       "type": "number"
     },
     "retries": {

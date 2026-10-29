@@ -5,6 +5,11 @@ Supported: integer arithmetic (with Python's floor `//` and `%`), comparisons, b
 recursion between module functions, simple `for` loops (rewritten as `foldl`), list
 comprehensions, constant slices, and `len`/`abs`/`min`/`max`/`sum`.
 
+Leading `assert` statements are preconditions, not code: the model leaves them out, theorems
+drafted from the Intent Model assume them, and the fidelity check only compares inputs that pass
+them. That is partial-correctness semantics: where Python raises on a failed precondition there is
+no result for a theorem to be wrong about.
+
 Everything else raises `TranslationError` with `UNSUPPORTED_CONSTRUCT` (or a more specific reason
 code). The translator never guesses: a construct it cannot model faithfully is a gap, not a
 best-effort approximation, because a proof about the wrong model is worse than no proof.
@@ -167,7 +172,7 @@ def _int_literal(v: int) -> str:
     return f"({v} : Int)"
 
 
-def _signature(fn: ast.FunctionDef) -> FunctionSig:
+def signature(fn: ast.FunctionDef) -> FunctionSig:
     a = fn.args
     if a.vararg or a.kwarg or a.kwonlyargs or a.posonlyargs:
         raise TranslationError("only plain positional parameters are supported", fn)
@@ -178,6 +183,28 @@ def _signature(fn: ast.FunctionDef) -> FunctionSig:
         code = ReasonCode.FLOAT_SEMANTICS if "float" in str(e) else ReasonCode.UNSUPPORTED_CONSTRUCT
         raise TranslationError(f"{fn.name}: {e}", fn, code) from e
     return FunctionSig(params, returns)
+
+
+def _body_without_docstring(fn: ast.FunctionDef) -> list[ast.stmt]:
+    stmts = list(fn.body)
+    if (
+        stmts
+        and isinstance(stmts[0], ast.Expr)
+        and isinstance(stmts[0].value, ast.Constant)
+        and isinstance(stmts[0].value.value, str)
+    ):
+        stmts = stmts[1:]
+    return stmts
+
+
+def leading_asserts(fn: ast.FunctionDef) -> list[ast.Assert]:
+    """`assert` statements before any other code: the function's stated preconditions."""
+    out = []
+    for s in _body_without_docstring(fn):
+        if not isinstance(s, ast.Assert):
+            break
+        out.append(s)
+    return out
 
 
 def _contains(nodes: list[ast.stmt], *types: type) -> bool:
@@ -270,6 +297,8 @@ class _FunctionTranslator:
             case ast.UnaryOp(op=ast.UAdd(), operand=operand):
                 return self.expr(operand, env, INT)
             case ast.UnaryOp(op=ast.Not()) | ast.Compare() | ast.BoolOp():
+                return f"(decide {self.prop(node, env)})", BOOL
+            case ast.Call(func=ast.Name(id="all" | "any"), args=[ast.GeneratorExp()]):
                 return f"(decide {self.prop(node, env)})", BOOL
             case ast.BinOp():
                 return self._binop(node, env, expected)
@@ -470,6 +499,8 @@ class _FunctionTranslator:
                 return parts[0] if len(parts) == 1 else "(" + " ∧ ".join(parts) + ")"
             case ast.Constant(value=bool() as b):
                 return "True" if b else "False"
+            case ast.Call(func=ast.Name(id="all" | "any" as q), args=[ast.GeneratorExp() as g]):
+                return self._quantifier(q, g, env)
         t, ty = self.expr(node, env)
         if ty != BOOL:
             raise TranslationError(
@@ -478,6 +509,24 @@ class _FunctionTranslator:
                 node,
             )
         return f"({t} = true)"
+
+    def _quantifier(self, q: str, g: ast.GeneratorExp, env: dict[str, PyType]) -> str:
+        """`all(P for x in xs if Q)` is `∀ x ∈ xs, Q → P`; `any(...)` is `∃ x ∈ xs, Q ∧ P`."""
+        if len(g.generators) != 1:
+            raise TranslationError(f"{q}() over more than one `for` is not supported", g)
+        gen = g.generators[0]
+        if gen.is_async or not isinstance(gen.target, ast.Name):
+            raise TranslationError("generator target must be a single name", gen.target)
+        src, ety = self._iterable(gen.iter, env)
+        inner = {**env, gen.target.id: ety}
+        x = lean_ident(gen.target.id)
+        body = self.prop(g.elt, inner)
+        conds = [self.prop(c, inner) for c in gen.ifs]
+        if q == "all":
+            body = " → ".join([*conds, body])
+            return f"(∀ {x} ∈ {src}, {body})"
+        body = " ∧ ".join([*conds, body])
+        return f"(∃ {x} ∈ {src}, {body})"
 
     def _compare(
         self, left: ast.expr, op: ast.cmpop, right: ast.expr, env: dict[str, PyType], node: ast.AST
@@ -501,6 +550,12 @@ class _FunctionTranslator:
             return f"({lt} {sym} {r})"
         lt, lty = self.expr(left, env)
         rt, rty = self.expr(right, env, lty)
+        if sym in ("=", "≠"):
+            # `r == 3` where r is Optional compares against `some 3`, as in Python.
+            if lty.kind == "option" and rty == lty.args[0]:
+                rt, rty = f"(some {rt})", lty
+            elif rty.kind == "option" and lty == rty.args[0]:
+                lt, lty = f"(some {lt})", rty
         ty = self._unify(lty, rty, node)
         if sym not in ("=", "≠") and ty != INT:
             raise TranslationError(f"ordering comparison on {ty.python()} is not supported", node)
@@ -510,14 +565,10 @@ class _FunctionTranslator:
 
     def body(self) -> str:
         env = dict(self.sig.params)
-        stmts = list(self.fn.body)
-        if (
-            stmts
-            and isinstance(stmts[0], ast.Expr)
-            and isinstance(stmts[0].value, ast.Constant)
-            and isinstance(stmts[0].value.value, str)
-        ):
-            stmts = stmts[1:]
+        stmts = _body_without_docstring(self.fn)
+        stmts = stmts[len(leading_asserts(self.fn)) :]
+        for s in leading_asserts(self.fn):
+            self.prop(s.test, env)  # a precondition must itself be in the subset
         return self.block(stmts, env, self._fall_off)
 
     def _fall_off(self, env: dict[str, PyType]) -> str:
@@ -706,6 +757,16 @@ class _FunctionTranslator:
         return f"let {pattern} := {fold}\n{self.block(rest, env, tail)}"
 
 
+class PropTranslator(_FunctionTranslator):
+    """Translates formal hints (Python boolean expressions) to Lean Props over a model."""
+
+    def __init__(self, sigs: dict[str, FunctionSig]) -> None:
+        self.sigs = sigs
+
+    def translate(self, node: ast.expr, env: dict[str, PyType]) -> str:
+        return self.prop(node, env)
+
+
 def _tuple(items: list[str]) -> str:
     return items[0] if len(items) == 1 else "(" + ", ".join(items) + ")"
 
@@ -713,7 +774,7 @@ def _tuple(items: list[str]) -> str:
 def translate(info: FunctionInfo) -> LeanModel:
     """Translate the target function and its same-module callees into one Lean model."""
     functions = [*info.callees, info]
-    sigs = {f.qualname: _signature(f.node) for f in functions}
+    sigs = {f.qualname: signature(f.node) for f in functions}
     defs, names = [], []
     for f in functions:
         sig = sigs[f.qualname]

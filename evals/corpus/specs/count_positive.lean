@@ -20,3 +20,7 @@ theorem P2 (xs : List Int) : count_positive xs ≤ xs.length := by
   simp only [count_positive]
   have := (count_fold_bounds xs 0).2
   omega
+
+/-- P3: exactly the positive elements are counted -/
+theorem P3 (xs : List Int) : count_positive xs = (xs.filter (fun v => decide (0 < v))).length := by
+  sorry

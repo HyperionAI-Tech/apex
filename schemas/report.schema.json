@@ -58,6 +58,18 @@
           "title": "Agree",
           "type": "boolean"
         },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
         "inputs_checked": {
           "title": "Inputs Checked",
           "type": "integer"

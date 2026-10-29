@@ -1,60 +1,305 @@
-# Eval corpus. Each case: a target, its category, an optional reference spec (P* theorems,
-# hand-written ground truth; `sorry` proofs are left for the tactic tiers), and the expected
-# verdict for every property, including the E* examples scaffold mines from doctests.
+# Eval corpus. Each case: a target, its category, the intent sources it exercises, an optional
+# reference spec (hand-written ground truth, renamed R1, R2, ... in the workspace), and the
+# expected verdict per property. P* are drafted from the fused Intent Model, E* are examples.
 #
-# Categories: known_good, planted_bug, conflict, out_of_scope, ai_generated.
+# Expected verdicts: proven, refuted, contradiction, unproven, out_of_scope, and
+#   holds = true of this code; proven or not (the tactics may not close it), never refuted.
+# On planted-bug and conflict entries, anything proven that is not expected proven/holds is a
+# false proven and fails the build.
 
 [[case]]
 target = "mathx.py::clamp"
 category = "known_good"
-spec = "specs/clamp.lean"
-expected = { E1 = "proven", E2 = "proven", P1 = "proven", P2 = "proven" }
+inputs = ["english", "docstring"]
+reference = "specs/clamp.lean"
+expected = { P1 = "proven", P2 = "proven", E1 = "proven", E2 = "proven", R1 = "proven", R2 = "proven" }
 
 [[case]]
 target = "mathx.py::my_abs"
 category = "known_good"
-spec = "specs/my_abs.lean"
-expected = { E1 = "proven", P1 = "proven", P2 = "proven", P3 = "proven" }
+inputs = ["english", "docstring"]
+reference = "specs/my_abs.lean"
+expected = { P1 = "proven", P2 = "proven", P3 = "proven", E1 = "proven", R1 = "proven", R2 = "proven", R3 = "proven" }
 
 [[case]]
 target = "mathx.py::sign"
 category = "known_good"
-spec = "specs/sign.lean"
-expected = { P1 = "proven", P2 = "proven", P3 = "proven" }
+inputs = ["english"]
+reference = "specs/sign.lean"
+expected = { P1 = "proven", P2 = "proven", P3 = "proven", P4 = "proven", R1 = "proven", R2 = "proven", R3 = "proven", R4 = "proven", R5 = "proven" }
 
+# P3 ('runs in linear time') has no formal hint: SPEC_AMBIGUOUS.
 [[case]]
 target = "mathx.py::sum_list"
 category = "known_good"
-spec = "specs/sum_list.lean"
-expected = { E1 = "proven", P1 = "proven", P2 = "proven", P3 = "proven" }
+inputs = ["english", "docstring"]
+reference = "specs/sum_list.lean"
+expected = { P1 = "proven", P2 = "holds", P3 = "unproven", E1 = "proven", R1 = "proven", R2 = "proven", R3 = "proven" }
 
 [[case]]
 target = "mathx.py::safe_div"
 category = "known_good"
-spec = "specs/safe_div.lean"
-expected = { E1 = "proven", E2 = "proven", P1 = "proven", P2 = "proven" }
+inputs = ["english", "docstring"]
+reference = "specs/safe_div.lean"
+expected = { P1 = "proven", P2 = "proven", E1 = "proven", E2 = "proven", R1 = "proven", R2 = "proven" }
 
 [[case]]
 target = "mathx.py::count_positive"
 category = "known_good"
-spec = "specs/count_positive.lean"
-expected = { P1 = "proven", P2 = "proven" }
+inputs = ["english"]
+reference = "specs/count_positive.lean"
+expected = { P1 = "holds", P2 = "holds", P3 = "holds", R1 = "proven", R2 = "proven", R3 = "holds" }
 
-# Planted bugs reuse the reference statements of the correct function. A property the bug really
-# violates expects `refuted` (CrossHair, Phase 2) and must never come out proven; a property the
-# bug happens to preserve expects `proven`, because Lean is right to prove it.
+[[case]]
+target = "listx.py::list_max"
+category = "known_good"
+inputs = ["tests"]
+reference = "specs/list_max.lean"
+expected = { P1 = "holds", P2 = "holds", P3 = "holds", E1 = "proven", E2 = "proven", E3 = "proven", R1 = "holds", R2 = "holds", R3 = "holds" }
+
+[[case]]
+target = "listx.py::contains"
+category = "known_good"
+inputs = ["tests"]
+reference = "specs/contains.lean"
+expected = { P1 = "holds", R1 = "holds" }
+
+[[case]]
+target = "listx.py::count_eq"
+category = "known_good"
+inputs = ["tests"]
+reference = "specs/count_eq.lean"
+expected = { P1 = "holds", R1 = "holds" }
+
+[[case]]
+target = "listx.py::filter_positive"
+category = "known_good"
+inputs = ["tests"]
+reference = "specs/filter_positive.lean"
+expected = { P1 = "proven", P2 = "holds", R1 = "proven", R2 = "holds" }
+
+[[case]]
+target = "listx.py::double_all"
+category = "known_good"
+inputs = ["tests"]
+reference = "specs/double_all.lean"
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "proven", R2 = "holds" }
+
+[[case]]
+target = "contracts.py::wrap"
+category = "known_good"
+inputs = ["docstring", "source"]
+reference = "specs/wrap.lean"
+expected = { P1 = "holds", P2 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "contracts.py::abs_diff"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/abs_diff.lean"
+expected = { P1 = "proven", P2 = "proven", R1 = "proven", R2 = "proven" }
+
+[[case]]
+target = "contracts.py::bounded_add"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/bounded_add.lean"
+expected = { P1 = "proven", P2 = "proven", R1 = "proven", R2 = "proven" }
+
+[[case]]
+target = "contracts.py::max3"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/max3.lean"
+expected = { P1 = "proven", P2 = "proven", R1 = "proven", R2 = "proven" }
+
+[[case]]
+target = "contracts.py::midpoint"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/midpoint.lean"
+expected = { P1 = "holds", R1 = "holds" }
+
+[[case]]
+target = "contracts.py::checked_square"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/checked_square.lean"
+expected = { P1 = "holds", R1 = "holds" }
+
+[[case]]
+target = "sourceonly.py::scale"
+category = "known_good"
+inputs = ["source"]
+
 [[case]]
 target = "mathx_bugs.py::clamp"
 category = "planted_bug"
-spec = "specs/clamp.lean"
-expected = { P1 = "refuted", P2 = "refuted" }
+inputs = ["english"]
+reference = "specs/clamp.lean"
+expected = { P1 = "refuted", P2 = "refuted", R1 = "unproven", R2 = "unproven" }
 
+# `x < -1` still returns x or -x, so P2/R2 hold for the buggy code too.
 [[case]]
 target = "mathx_bugs.py::my_abs"
 category = "planted_bug"
-spec = "specs/my_abs.lean"
-# `if x < -1` still returns x or -x, so P2 holds for the buggy code too.
-expected = { P1 = "refuted", P2 = "proven", P3 = "refuted" }
+inputs = ["english"]
+reference = "specs/my_abs.lean"
+expected = { P1 = "refuted", P2 = "proven", P3 = "refuted", R1 = "unproven", R2 = "proven", R3 = "unproven" }
+
+# sign(0) == -1 breaks only the zero case.
+[[case]]
+target = "mathx_bugs.py::sign"
+category = "planted_bug"
+inputs = ["english"]
+reference = "specs/sign.lean"
+expected = { P1 = "proven", P2 = "proven", P3 = "refuted", P4 = "proven", R1 = "proven", R2 = "proven", R3 = "proven", R4 = "unproven", R5 = "proven" }
+
+# Skipping the first element still sums [] to 0.
+[[case]]
+target = "mathx_bugs.py::sum_list"
+category = "planted_bug"
+inputs = ["english"]
+reference = "specs/sum_list.lean"
+expected = { P1 = "proven", P2 = "refuted", P3 = "unproven", R1 = "proven", R2 = "unproven", R3 = "unproven" }
+
+[[case]]
+target = "mathx_bugs.py::safe_div"
+category = "planted_bug"
+inputs = ["english"]
+reference = "specs/safe_div.lean"
+expected = { P1 = "refuted", P2 = "proven", R1 = "unproven", R2 = "proven" }
+
+# Counting zeros keeps the count within [0, len]; only P3 sees the bug.
+[[case]]
+target = "mathx_bugs.py::count_positive"
+category = "planted_bug"
+inputs = ["english"]
+reference = "specs/count_positive.lean"
+expected = { P1 = "holds", P2 = "holds", P3 = "refuted", R1 = "holds", R2 = "holds", R3 = "unproven" }
+
+# All-negative lists give 0: still an upper bound, no longer a member.
+[[case]]
+target = "listx_bugs.py::list_max"
+category = "planted_bug"
+inputs = ["tests"]
+reference = "specs/list_max.lean"
+expected = { P1 = "holds", P2 = "refuted", P3 = "holds", E1 = "proven", E2 = "refuted", E3 = "proven", R1 = "holds", R2 = "unproven", R3 = "holds" }
+
+[[case]]
+target = "listx_bugs.py::contains"
+category = "planted_bug"
+inputs = ["tests"]
+reference = "specs/contains.lean"
+expected = { P1 = "refuted", R1 = "unproven" }
+
+[[case]]
+target = "listx_bugs.py::count_eq"
+category = "planted_bug"
+inputs = ["tests"]
+reference = "specs/count_eq.lean"
+expected = { P1 = "refuted", R1 = "unproven" }
+
+[[case]]
+target = "listx_bugs.py::filter_positive"
+category = "planted_bug"
+inputs = ["tests"]
+reference = "specs/filter_positive.lean"
+expected = { P1 = "refuted", P2 = "holds", R1 = "unproven", R2 = "holds" }
+
+[[case]]
+target = "listx_bugs.py::double_all"
+category = "planted_bug"
+inputs = ["tests"]
+reference = "specs/double_all.lean"
+expected = { P1 = "holds", P2 = "refuted", E1 = "refuted", R1 = "proven", R2 = "unproven" }
+
+[[case]]
+target = "contracts_bugs.py::wrap"
+category = "planted_bug"
+inputs = ["docstring", "source"]
+reference = "specs/wrap.lean"
+expected = { P1 = "holds", P2 = "refuted", R1 = "holds", R2 = "unproven" }
+
+[[case]]
+target = "contracts_bugs.py::abs_diff"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/abs_diff.lean"
+expected = { P1 = "refuted", P2 = "proven", R1 = "unproven", R2 = "proven" }
+
+# Only a + b == cap breaks it.
+[[case]]
+target = "contracts_bugs.py::bounded_add"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/bounded_add.lean"
+expected = { P1 = "proven", P2 = "refuted", R1 = "proven", R2 = "unproven" }
+
+[[case]]
+target = "contracts_bugs.py::max3"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/max3.lean"
+expected = { P1 = "refuted", P2 = "proven", R1 = "unproven", R2 = "proven" }
+
+[[case]]
+target = "contracts_bugs.py::midpoint"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/midpoint.lean"
+expected = { P1 = "refuted", R1 = "unproven" }
+
+# One magic input: a job for CrossHair, not random testing.
+[[case]]
+target = "contracts_bugs.py::checked_square"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/checked_square.lean"
+expected = { P1 = "refuted", R1 = "unproven" }
+
+# Doctest says double(2) == 4, a test says 5.
+[[case]]
+target = "conflicts.py::double"
+category = "conflict"
+inputs = ["docstring", "tests"]
+expected = { E1 = "contradiction", E2 = "contradiction" }
+
+# post: r * 2 <= x, but a test asserts half(7) == 4.
+[[case]]
+target = "conflicts.py::half"
+category = "conflict"
+inputs = ["docstring", "tests"]
+expected = { P1 = "contradiction", E1 = "contradiction" }
+
+# The English spec says x + 1, the doctest says inc(1) == 3.
+[[case]]
+target = "conflicts.py::inc"
+category = "conflict"
+inputs = ["english", "docstring"]
+expected = { P1 = "contradiction", E1 = "contradiction" }
+
+# A Hypothesis test says neg(x) <= 0, the doctest says neg(-3) == 3.
+[[case]]
+target = "conflicts.py::neg"
+category = "conflict"
+inputs = ["tests", "docstring"]
+expected = { P1 = "contradiction", E1 = "contradiction" }
+
+[[case]]
+target = "loops.py::isqrt"
+category = "out_of_scope"
+inputs = ["docstring"]
+reason = "NONTERMINATION"
+expected = { P1 = "out_of_scope" }
+
+# Cannot be modelled in Lean, but can be refuted.
+[[case]]
+target = "loops.py::isqrt_bug"
+category = "out_of_scope"
+inputs = ["docstring"]
+reason = "NONTERMINATION"
+expected = { P1 = "refuted" }
 
 [[case]]
 target = "impure.py::logged_clamp"
@@ -80,8 +325,3 @@ reason = "IMPURE_IO"
 target = "impure.py::spawn"
 category = "out_of_scope"
 reason = "NEEDS_CONCURRENCY_TOOL"
-
-[[case]]
-target = "conflicts.py::double"
-category = "conflict"
-expected = { E1 = "contradiction", E2 = "contradiction" }

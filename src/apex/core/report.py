@@ -78,6 +78,8 @@ class FidelitySummary(_Strict):
     agree: bool
     inputs_checked: int
     mismatch: Counterexample | None = None
+    domain: str | None = None
+    """The function's leading asserts, when inputs were restricted to where they hold."""
 
 
 class FunctionResult(_Strict):

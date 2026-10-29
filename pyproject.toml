@@ -11,11 +11,18 @@ dependencies = [
     "typer>=0.12",
     "rich>=13.7",
     "hypothesis>=6.100",
+    "crosshair-tool>=0.0.80",
 ]
 
 [project.optional-dependencies]
 # Warm REPL pool for the fast proof-search loop. Never used on the verdict path.
 repl = ["lean-interact>=0.6"]
+anthropic = [
+    "anthropic>=2.3.0",
+]
+openai = [
+    "openai>=3.41.0",
+]
 
 [project.scripts]
 apex = "apex.cli.app:main"
@@ -27,6 +34,8 @@ dev = [
     "pyright>=1.1.380",
     "pyyaml>=6",
     "types-pyyaml",
+    "anthropic>=2.3.0",
+    "openai>=3.41.0",
 ]
 
 [build-system]

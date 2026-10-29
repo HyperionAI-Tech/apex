@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "ProposalSet": {
+      "additionalProperties": false,
+      "properties": {
+        "preconditions": {
+          "items": {
+            "$ref": "#/$defs/ProposedPrecondition"
+          },
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "properties": {
+          "items": {
+            "$ref": "#/$defs/ProposedProperty"
+          },
+          "title": "Properties",
+          "type": "array"
+        },
+        "proposed_by": {
+          "default": "host",
+          "description": "Which model or agent wrote these. Debugging, not trust.",
+          "title": "Proposed By",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "ProposalSet",
+      "type": "object"
+    },
+    "ProposedPrecondition": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "enum": [
+            "spec",
+            "docstring",
+            "source"
+          ],
+          "title": "Basis",
+          "type": "string"
+        },
+        "formal_hint": {
+          "description": "Python boolean expression over the parameters only.",
+          "title": "Formal Hint",
+          "type": "string"
+        },
+        "item": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "formal_hint",
+        "basis"
+      ],
+      "title": "ProposedPrecondition",
+      "type": "object"
+    },
+    "ProposedProperty": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "description": "What it was read from: an English spec item, docstring prose, or the code.",
+          "enum": [
+            "spec",
+            "docstring",
+            "source"
+          ],
+          "title": "Basis",
+          "type": "string"
+        },
+        "formal_hint": {
+          "description": "Python boolean expression; `r` is the result.",
+          "title": "Formal Hint",
+          "type": "string"
+        },
+        "item": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the English spec item this formalizes (S1, ...).",
+          "title": "Item"
+        },
+        "kind": {
+          "default": "postcondition",
+          "enum": [
+            "postcondition",
+            "invariant",
+            "equivalence",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "description": "The property in one plain-English sentence.",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "formal_hint",
+        "basis"
+      ],
+      "title": "ProposedProperty",
+      "type": "object"
+    },
+    "Rejection": {
+      "additionalProperties": false,
+      "properties": {
+        "formal_hint": {
+          "title": "Formal Hint",
+          "type": "string"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "property",
+            "precondition"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "kind",
+        "formal_hint",
+        "reason"
+      ],
+      "title": "Rejection",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "accepted": {
+      "$ref": "#/$defs/ProposalSet"
+    },
+    "rejected": {
+      "items": {
+        "$ref": "#/$defs/Rejection"
+      },
+      "title": "Rejected",
+      "type": "array"
+    }
+  },
+  "required": [
+    "accepted"
+  ],
+  "title": "ProposalCheck",
+  "type": "object"
+}

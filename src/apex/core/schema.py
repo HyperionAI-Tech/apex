@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from apex.core.config import ApexConfig
 from apex.core.intent import IntentModel
 from apex.core.report import Report
+from apex.fidelity.refute import RefuteResult
+from apex.intent.proposals import ProposalCheck, ProposalSet
 from apex.lean.compiler import CompileResult
 
 CONTRACTS: dict[str, type[BaseModel]] = {
@@ -15,6 +17,9 @@ CONTRACTS: dict[str, type[BaseModel]] = {
     "report": Report,
     "config": ApexConfig,
     "lean_compile_result": CompileResult,
+    "proposal_set": ProposalSet,
+    "proposal_check": ProposalCheck,
+    "refute_result": RefuteResult,
 }
 
 

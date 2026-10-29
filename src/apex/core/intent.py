@@ -31,6 +31,7 @@ class Signature(_Strict):
 
 class Source(_Strict):
     type: Literal["docstring", "test", "spec", "source", "inferred"]
+    """`spec` is an English spec file; `inferred` is a model's reading of the code alone."""
     loc: str | None = None
 
 
@@ -40,14 +41,22 @@ class Property(_Strict):
     """`example` is a concrete input/output pair mined from a doctest or a test assertion."""
     text: str
     formal_hint: str | None = None
+    """A Python boolean expression over the parameters and `r` (the result); `A -> B` is
+    implication. Grammar: references/INTENT.md. Evaluated in Python for conflicts and refutation,
+    translated to Lean for the drafted statement."""
     sources: list[Source] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
+    proposed_by: str | None = None
+    """The model that wrote the formal hint (e.g. `claude-code`), if any. Debugging, not trust."""
 
 
 class Precondition(_Strict):
     id: str
     text: str
+    formal_hint: str | None = None
+    """A Python boolean expression over the parameters. Every drafted statement assumes it."""
     sources: list[Source] = Field(default_factory=list)
+    proposed_by: str | None = None
 
 
 class Conflict(_Strict):

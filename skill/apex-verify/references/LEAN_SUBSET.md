@@ -29,6 +29,8 @@ code, never approximated.
 
 ## Statements
 
+- Leading `assert` statements are preconditions: the model leaves them out, drafted statements
+  assume them, and the fidelity check only compares inputs that pass them.
 - `return`, assignment (including tuple unpacking), annotated assignment, `+=`-style updates.
 - `if` / `elif` / `else`.
 - `for x in xs:` and `for i in range(a, b):` without `break`, `continue` or `return` inside.
@@ -40,7 +42,7 @@ code, never approximated.
 
 | Reason code | Typical cause | Fix |
 |---|---|---|
-| `UNSUPPORTED_CONSTRUCT` | `xs[i]`, truthiness (`if xs:`), falling off the end | Iterate instead of indexing; compare explicitly (`len(xs) == 0`); return on every path or return `Optional` |
+| `UNSUPPORTED_CONSTRUCT` | `xs[i]`, truthiness (`if xs:`), falling off the end, `assert` after other code, `raise` | Iterate instead of indexing; compare explicitly (`len(xs) == 0`); return on every path or return `Optional` |
 | `NONTERMINATION` | `while` loops, recursion Lean cannot see shrinking | `for` over a `range`, or recurse on `n - 1` with a base case |
 | `FLOAT_SEMANTICS` | `/`, float literals, `math.*` | Integer or fixed-point arithmetic |
 | `IMPURE_IO` | `print`, files, globals, randomness, mutating arguments | Verify the pure core Apex extracts, or move the side effects out |

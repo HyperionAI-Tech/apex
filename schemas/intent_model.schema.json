@@ -56,9 +56,33 @@
     "Precondition": {
       "additionalProperties": false,
       "properties": {
+        "formal_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formal Hint"
+        },
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "proposed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed By"
         },
         "sources": {
           "items": {
@@ -115,6 +139,18 @@
           ],
           "title": "Kind",
           "type": "string"
+        },
+        "proposed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed By"
         },
         "sources": {
           "items": {

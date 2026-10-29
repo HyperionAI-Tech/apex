@@ -4,8 +4,10 @@ Each verb accepts candidates from outside (a spec file written by a human, an ag
 or Apex's own LLM client in engine mode) and checks them. None of them calls a model.
 """
 
+import json
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -14,7 +16,7 @@ from apex import __version__
 from apex.analyze.purity import PurityResult, classify
 from apex.analyze.target import FunctionInfo, load_function
 from apex.core.config import ApexConfig
-from apex.core.intent import IntentModel
+from apex.core.intent import Conflict, IntentModel, Property
 from apex.core.report import (
     FunctionResult,
     Gap,
@@ -24,13 +26,28 @@ from apex.core.report import (
 )
 from apex.core.verdict import ReasonCode, Verdict, exit_code_for
 from apex.fidelity.bridge import FidelityError, check_fidelity
-from apex.intent.skeleton import Example, build_intent
+from apex.fidelity.refute import RefuteResult, refute
+from apex.intent.candidates import Example, Mined
+from apex.intent.docstring import mine_docstring
+from apex.intent.english import SpecItem, mine_english
+from apex.intent.fuse import fuse, module_functions
+from apex.intent.hints import HintError, parse_hint
+from apex.intent.proposals import (
+    ProposalCheck,
+    ProposalSet,
+    check_proposals,
+    merge,
+    to_candidates,
+)
+from apex.intent.source import mine_source
+from apex.intent.tests import mine_tests
 from apex.lean.compiler import TheoremOutcome, compile_and_audit, run_lean
 from apex.lean.project import LeanProject
 from apex.prove.tactics import probe
+from apex.theorems.draft import DraftError, draft_property
 from apex.theorems.review import ReviewStore
 from apex.theorems.spec import Spec, SpecDecl, SpecError, parse_spec, render_decl
-from apex.translate.lean import LeanModel, TranslationError, translate
+from apex.translate.lean import FunctionSig, LeanModel, TranslationError, signature, translate
 from apex.translate.literals import LiteralError, to_lean
 
 FILE_HEADER = "import Apex.Prelude\n"
@@ -82,6 +99,44 @@ class Workspace:
     def proofs_dir(self, info: FunctionInfo) -> Path:
         return self._fn_dir("proofs", info)
 
+    def intent_path(self, info: FunctionInfo) -> Path:
+        """The last fused Intent Model. Rewritten on every run; kept for stable property IDs."""
+        return self._fn_dir("intent", info) / "intent.json"
+
+    def proposals_path(self, info: FunctionInfo) -> Path:
+        return self._fn_dir("intent", info) / "proposals.json"
+
+    def inputs_path(self, info: FunctionInfo) -> Path:
+        return self._fn_dir("intent", info) / "inputs.json"
+
+    def english_specs(self, info: FunctionInfo) -> list[Path]:
+        """English specs for a function: `<module>.spec.md` beside it, plus any registered."""
+        out = []
+        auto = info.path.resolve().with_name(f"{info.path.stem}.spec.md")
+        if auto.is_file():
+            out.append(auto)
+        if self.inputs_path(info).is_file():
+            data = json.loads(self.inputs_path(info).read_text())
+            out += [(self.root / p).resolve() for p in data.get("english", [])]
+        return [p for p in dict.fromkeys(out) if p.is_file()]
+
+    def register_english(self, info: FunctionInfo, path: Path) -> None:
+        path = path.resolve()
+        if not path.is_file():
+            raise ApexToolError(f"no such English spec: {path}")
+        data = {"english": []}
+        if self.inputs_path(info).is_file():
+            data = json.loads(self.inputs_path(info).read_text())
+        rel = os.path.relpath(path, self.root)
+        if rel not in data["english"]:
+            data["english"].append(rel)
+        self.inputs_path(info).parent.mkdir(parents=True, exist_ok=True)
+        self.inputs_path(info).write_text(json.dumps(data, indent=2) + "\n")
+
+    def stored_proposals(self, info: FunctionInfo) -> ProposalSet | None:
+        path = self.proposals_path(info)
+        return ProposalSet.model_validate_json(path.read_text()) if path.is_file() else None
+
     @property
     def review_store(self) -> ReviewStore:
         return ReviewStore(self.root / self.config.review_store)
@@ -104,6 +159,10 @@ class AnalyzeResult(BaseModel):
     gap: Gap | None = None
     pure_core: str | None = None
     lean_model: str | None = None
+    spec_items: list[str] = []
+    """English spec items (`S1: ...`), which proposals refer to by ID."""
+    needs_formalizing: list[str] = []
+    """Properties that are text only: a model or agent must propose a formal hint."""
 
 
 @dataclass
@@ -113,7 +172,19 @@ class _Analysis:
     model: LeanModel | None
     gap: Gap | None
     intent: IntentModel
-    examples: list[Example]
+    examples: dict[str, Example]
+    sig: FunctionSig | None
+    """The signature in the supported types, even when the body cannot be modelled."""
+    spec_items: list[SpecItem] = field(default_factory=list)
+    english_files: list[Path] = field(default_factory=list)
+
+    @property
+    def params(self) -> list[str]:
+        return [n for n, _ in self.sig.params] if self.sig else []
+
+    @property
+    def helpers(self) -> set[str]:
+        return module_functions(self.info)
 
 
 def _purity_gap(purity: PurityResult) -> Gap:
@@ -148,7 +219,12 @@ def _translation_gap(e: TranslationError) -> Gap:
     )
 
 
-def _analyze(target: str) -> _Analysis:
+def _analyze(target: str, ws: "Workspace | None" = None) -> _Analysis:
+    """Stage 1: purity, the Lean model, and every intent source fused into one Intent Model.
+
+    With a workspace, registered English specs and stored proposals are included, and the fused
+    model is saved so property IDs stay stable across runs.
+    """
     info = load_function(target)
     purity = classify(info.node, info.module_tree)
     model, gap = None, None
@@ -160,33 +236,106 @@ def _analyze(target: str) -> _Analysis:
         except TranslationError as e:
             gap = _translation_gap(e)
     sig = model.target_sig if model else None
-    intent, examples = build_intent(
-        info, purity, sig.params if sig else None, sig.returns if sig else None
+    if sig is None:
+        try:
+            sig = signature(info.node)
+        except TranslationError:
+            sig = None
+
+    params = [n for n, _ in sig.params] if sig else [a.arg for a in info.node.args.args]
+    helpers = module_functions(info)
+    mined = mine_docstring(info) + mine_tests(info) + mine_source(info)
+    items: list[SpecItem] = []
+    english = ws.english_specs(info) if ws else []
+    for path in english:
+        m, its = mine_english(path, info.qualname, params, helpers)
+        mined, items = mined + m, items + its
+    previous = None
+    if ws is not None:
+        if (stored := ws.stored_proposals(info)) is not None:
+            spec_name = english[0].name if english else None
+            mined = mined + Mined([], to_candidates(stored, items, spec_name, info.path.name))
+        if ws.intent_path(info).is_file():
+            previous = IntentModel.model_validate_json(ws.intent_path(info).read_text())
+
+    def load_helpers() -> dict:
+        from apex.fidelity.bridge import load_module
+
+        return vars(load_module(info))
+
+    intent, examples = fuse(
+        info,
+        purity,
+        sig.params if sig else None,
+        sig.returns if sig else None,
+        mined,
+        previous=previous,
+        load_helpers=load_helpers,
     )
-    return _Analysis(info, purity, model, gap, intent, examples)
+    if ws is not None:
+        ws.intent_path(info).parent.mkdir(parents=True, exist_ok=True)
+        ws.intent_path(info).write_text(intent.model_dump_json(indent=2, by_alias=True) + "\n")
+    return _Analysis(info, purity, model, gap, intent, examples, sig, items, english)
 
 
-def analyze(target: str) -> AnalyzeResult:
-    a = _analyze(target)
+def analyze(
+    target: str, ws: "Workspace | None" = None, english: Path | None = None
+) -> AnalyzeResult:
+    if english is not None:
+        if ws is None:
+            raise ApexToolError("--english needs a workspace")
+        ws.register_english(load_function(target), english)
+    a = _analyze(target, ws)
     return AnalyzeResult(
         intent=a.intent,
         in_scope=a.gap is None,
         gap=a.gap,
         pure_core=a.purity.pure_core,
         lean_model=a.model.text if a.model else None,
+        spec_items=[it.id + ": " + it.text for it in a.spec_items],
+        needs_formalizing=[
+            p.id for p in a.intent.properties if p.kind != "example" and not p.formal_hint
+        ],
     )
 
 
+# ---- intent proposals (the LLM step, from either Apex's client or the host agent) -------------
+
+
+def submit_proposals(
+    target: str, ws: "Workspace", proposals: ProposalSet, *, replace: bool = False
+) -> ProposalCheck:
+    """Check proposed hints against the real signature and store the valid ones."""
+    a = _analyze(target, ws)
+    result = check_proposals(proposals, a.params, a.helpers, a.spec_items)
+    stored = None if replace else ws.stored_proposals(a.info)
+    path = ws.proposals_path(a.info)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(merge(stored, result.accepted).model_dump_json(indent=2) + "\n")
+    _analyze(target, ws)  # refresh the fused intent with the new proposals
+    return result
+
+
+def propose_intent(
+    target: str, ws: "Workspace", *, provider: str | None = None, from_source: bool = False
+) -> ProposalCheck:
+    """Engine mode for stage 1: a model formalizes the English and docstring intent.
+
+    The result goes through exactly the checks `apex intent submit` applies to a host agent.
+    """
+    from apex.intent.propose import propose
+    from apex.llm.providers import ProviderError, get_provider
+
+    a = _analyze(target, ws)
+    try:
+        llm = get_provider(ws.config, provider)
+        proposals = propose(llm, a.info, a.intent, a.spec_items, from_source=from_source)
+    except ProviderError as e:
+        raise ApexToolError(str(e)) from e
+    return submit_proposals(target, ws, proposals)
+
+
 # ---- scaffold --------------------------------------------------------------------------------
-
-
-class ScaffoldResult(BaseModel):
-    model_path: str | None = None
-    spec_path: str | None = None
-    spec_written: bool = False
-    """False when a spec already existed; Apex never overwrites one."""
-    model_compiles: bool = False
-    gap: Gap | None = None
 
 
 def model_file(model: LeanModel) -> str:
@@ -238,37 +387,77 @@ def _example_theorem(ex: Example, pid: str, model: LeanModel) -> str | None:
     )
 
 
-def spec_skeleton(a: _Analysis) -> str:
+def _drafts(a: _Analysis, floor: float, only: set[str] | None = None) -> list[tuple[str, str]]:
+    """(id, text) for every property: a drafted theorem, or a comment saying why there is none."""
     assert a.model is not None
+    conflicted = {pid: c for c in a.intent.conflicts for pid in c.property_ids}
+    out = []
+    for prop in a.intent.properties:
+        if only is not None and prop.id not in only:
+            continue
+        if prop.id in conflicted:
+            out.append((prop.id, f"-- {prop.id} conflicts: {conflicted[prop.id].description}\n"))
+            continue
+        if prop.kind == "example":
+            ex = a.examples.get(prop.id)
+            thm = _example_theorem(ex, prop.id, a.model) if ex else None
+            out.append((prop.id, thm or f"-- TODO {prop.id}: {prop.text}\n"))
+            continue
+        why = None
+        if not prop.formal_hint:
+            why = "no formal hint yet (`apex intent propose` or `apex intent submit`)"
+        elif prop.confidence < floor:
+            why = f"confidence {prop.confidence} is below the floor {floor}"
+        else:
+            try:
+                out.append((prop.id, draft_property(prop, a.intent, a.model, a.helpers).text))
+                continue
+            except DraftError as e:
+                why = str(e)
+        hint = f"\n--   hint: {prop.formal_hint}" if prop.formal_hint else ""
+        out.append((prop.id, f"-- TODO {prop.id}: {prop.text}{hint}\n--   ({why})\n"))
+    return out
+
+
+def spec_skeleton(a: _Analysis, floor: float) -> str:
     info = a.info
     out = [
         f"/-\nApex spec for {info.path}::{info.qualname}",
         "Model: Model.lean in this folder (generated; read it, do not edit it).",
         "",
-        "Write each property as a theorem named after its ID (P1, P2, ...; E1... are examples).",
-        "Statements need human approval in a terminal (`apex review`) before they count as",
-        "`proven`. Proofs may be anything Lean accepts except sorry/admit/native_decide/axioms.",
-        "Only imports and theorem/lemma declarations are allowed in this file.",
-        "-/\n",
+        "Each property is a theorem named after its ID (P1, P2, ...; E1, ... are examples).",
+        "Statements drafted from formal hints are only drafts: they need human approval in a",
+        "terminal (`apex review`) before they count as `proven`. Proofs may be anything Lean",
+        "accepts except sorry/admit/native_decide/axioms. Only imports and theorem/lemma",
+        "declarations are allowed in this file.",
     ]
-    for prop in a.intent.properties:
-        ex = next((e for k, e in enumerate(a.examples, start=1) if f"E{k}" == prop.id), None)
-        thm = _example_theorem(ex, prop.id, a.model) if ex else None
-        if thm:
-            out.append(thm)
-        else:
-            out.append(
-                f"-- TODO {prop.id}: {prop.text}"
-                + (f"\n--   hint: {prop.formal_hint}" if prop.formal_hint else "")
-                + "\n"
-            )
+    if a.intent.preconditions:
+        out += ["", "Preconditions (assumed by every drafted statement):"]
+        out += [
+            f"  {c.id}: {c.formal_hint or c.text}"
+            + ("" if c.formal_hint else "  (no hint: not assumed)")
+            for c in a.intent.preconditions
+        ]
+    out.append("-/\n")
+    out += [text for _, text in _drafts(a, floor)]
     if not a.intent.properties:
         out.append("-- TODO P1: state the first property of the function here.\n")
     return "\n".join(out)
 
 
+class ScaffoldResult(BaseModel):
+    model_path: str | None = None
+    spec_path: str | None = None
+    spec_written: bool = False
+    """False when a spec already existed; Apex never rewrites one, it only appends."""
+    appended: list[str] = []
+    """Drafted theorems appended to an existing spec (properties it did not declare yet)."""
+    model_compiles: bool = False
+    gap: Gap | None = None
+
+
 def scaffold(target: str, ws: Workspace, project: LeanProject | None = None) -> ScaffoldResult:
-    a = _analyze(target)
+    a = _analyze(target, ws)
     if a.model is None:
         return ScaffoldResult(gap=a.gap)
     project = project or LeanProject.locate()
@@ -276,14 +465,27 @@ def scaffold(target: str, ws: Workspace, project: LeanProject | None = None) -> 
     model_path, spec_path = ws.model_path(a.info), ws.spec_path(a.info)
     model_path.parent.mkdir(parents=True, exist_ok=True)
     model_path.write_text(model_file(a.model))
-    written = False
+    floor = ws.config.confidence_floor
+    written, appended = False, []
     if not spec_path.exists():
-        spec_path.write_text(spec_skeleton(a))
+        spec_path.write_text(spec_skeleton(a, floor))
         written = True
+    else:
+        declared = {d.name for d in load_spec(spec_path).decls}
+        new = [
+            (pid, text)
+            for pid, text in _drafts(a, floor, {p.id for p in a.intent.properties} - declared)
+            if text.startswith("/--")
+        ]
+        if new:
+            with spec_path.open("a") as f:
+                f.write("\n" + "\n".join(text for _, text in new))
+            appended = [pid for pid, _ in new]
     return ScaffoldResult(
         model_path=str(model_path),
         spec_path=str(spec_path),
         spec_written=written,
+        appended=appended,
         model_compiles=gap is None,
         gap=gap,
     )
@@ -311,6 +513,94 @@ def load_spec(path: Path) -> Spec:
         raise ApexToolError(f"invalid spec {path}: " + "; ".join(e.problems)) from e
 
 
+_DOC_HINT = re.compile(r"\[hint: (?P<h>.*?); ")
+
+
+def _same_claim(decl: SpecDecl, prop: Property, a: _Analysis) -> bool:
+    """Whether a spec theorem was drafted from this intent property (its doc says which).
+
+    Refutation checks the property's hint on the real Python; the counterexample is only pinned on
+    a theorem that states that same hint, never on a hand-written theorem that shares an ID.
+    """
+    if not decl.doc:
+        return False
+    if prop.kind == "example":
+        ex = a.examples.get(prop.id)
+        return ex is not None and f"{prop.id}: {ex.text} " in decl.doc + " "
+    m = _DOC_HINT.search(decl.doc)
+    if not m or not prop.formal_hint:
+        return False
+    try:
+        return (
+            parse_hint(m["h"], a.params, a.helpers).text
+            == parse_hint(prop.formal_hint, a.params, a.helpers).text
+        )
+    except HintError:
+        return False
+
+
+def _conflict_result(pid: str, c: Conflict, base: dict) -> PropertyResult:
+    return PropertyResult(
+        **base,
+        verdict=Verdict.CONTRADICTION,
+        gap=Gap(
+            reason_code=ReasonCode.SPEC_CONFLICT,
+            explanation=c.description,
+            next_steps=["Decide which source is right and fix the other."],
+        ),
+    )
+
+
+def _undeclared_result(prop: Property, floor: float, spec_path: Path) -> PropertyResult:
+    if not prop.formal_hint:
+        return PropertyResult(
+            id=prop.id,
+            verdict=Verdict.UNPROVEN,
+            gap=Gap(
+                reason_code=ReasonCode.SPEC_AMBIGUOUS,
+                explanation=f"Not machine-checkable yet: {prop.text}",
+                next_steps=[
+                    "Add a formal hint in backticks to the spec item, or run `apex intent "
+                    "propose` (model) / `apex intent submit` (agent) to formalize it.",
+                ],
+            ),
+        )
+    if prop.confidence < floor:
+        return PropertyResult(
+            id=prop.id,
+            verdict=Verdict.UNPROVEN,
+            gap=Gap(
+                reason_code=ReasonCode.SPEC_AMBIGUOUS,
+                explanation=f"Confidence {prop.confidence} is below the floor {floor}: "
+                f"{prop.text} (`{prop.formal_hint}`)",
+                next_steps=["Confirm the intent in a spec, docstring or test to raise it."],
+            ),
+        )
+    return PropertyResult(
+        id=prop.id,
+        verdict=Verdict.UNPROVEN,
+        gap=Gap(
+            reason_code=ReasonCode.NO_STATEMENT,
+            explanation=f"No Lean statement yet for: {prop.text}",
+            next_steps=[f"Run `apex scaffold` to append the drafted theorem to {spec_path.name}."],
+        ),
+    )
+
+
+def _apply_refutation(results: dict[str, PropertyResult], refuted: RefuteResult) -> None:
+    for r in refuted.properties:
+        if r.refuted and r.id in results and r.counterexample is not None:
+            p = results[r.id]
+            results[r.id] = PropertyResult(
+                id=p.id,
+                verdict=Verdict.REFUTED,
+                lean_statement=p.lean_statement,
+                review=p.review,
+                counterexample=r.counterexample,
+                provenance=p.provenance,
+            )
+
+
 def _verify_function(
     a: _Analysis, ws: Workspace, spec_path: Path, project: LeanProject, fidelity_n: int
 ) -> FunctionResult:
@@ -324,38 +614,57 @@ def _verify_function(
         pure_core=a.purity.pure_core,
     )
     spec = load_spec(spec_path) if spec_path.is_file() else Spec()
-    declared = {d.name for d in spec.properties}
-    wanted = [d.name for d in spec.properties] + [
-        p.id for p in a.intent.properties if p.id not in declared
+    declared = {d.name: d for d in spec.properties}
+    props = {p.id: p for p in a.intent.properties}
+    wanted = list(declared) + [pid for pid in props if pid not in declared]
+    conflicted = {pid: c for c in a.intent.conflicts for pid in c.property_ids}
+    floor = ws.config.confidence_floor
+    refutable = [
+        pid
+        for pid in wanted
+        if pid in props
+        and pid not in conflicted
+        and (pid not in declared or _same_claim(declared[pid], props[pid], a))
     ]
+
+    def run_refutation(crosshair_ids: set[str]) -> RefuteResult | None:
+        if a.purity.class_ != "pure" or a.sig is None or not refutable:
+            return None
+        return refute(
+            info,
+            a.intent,
+            a.sig.params,
+            a.examples,
+            ids=refutable,
+            crosshair_ids=crosshair_ids,
+            budget_s=ws.config.refute_budget_s,
+        )
 
     if a.gap is None and a.model is not None:
         a.gap = _check_model(a.model, project)
     if a.gap is not None or a.model is None:
         result.gap = a.gap
-        result.properties = [
-            PropertyResult(id=pid, verdict=Verdict.OUT_OF_SCOPE, gap=a.gap) for pid in wanted
-        ]
+        oos: dict[str, PropertyResult] = {}
+        for pid in wanted:
+            oos[pid] = (
+                _conflict_result(pid, conflicted[pid], {"id": pid})
+                if pid in conflicted
+                else PropertyResult(id=pid, verdict=Verdict.OUT_OF_SCOPE, gap=a.gap)
+            )
+        # No model to prove things about, but the real Python can still be refuted.
+        if refuted := run_refutation(set(refutable)):
+            _apply_refutation(oos, refuted)
+        result.properties = [oos[pid] for pid in wanted]
         return result
 
     model = a.model
     store = ws.review_store
-    conflicted = {pid: c for c in a.intent.conflicts for pid in c.property_ids}
     compiled: dict[str, PropertyResult] = {}
     for decl in spec.properties:
         review = store.status(fid, info.sha256, decl.name, decl.statement_sha256)
         base = {"id": decl.name, "lean_statement": decl.full_statement, "review": review}
         if decl.name in conflicted:
-            c = conflicted[decl.name]
-            compiled[decl.name] = PropertyResult(
-                **base,
-                verdict=Verdict.CONTRADICTION,
-                gap=Gap(
-                    reason_code=ReasonCode.SPEC_CONFLICT,
-                    explanation=c.description,
-                    next_steps=["Decide which source is right and fix the other."],
-                ),
-            )
+            compiled[decl.name] = _conflict_result(decl.name, conflicted[decl.name], base)
             continue
         if not decl.has_proof:
             compiled[decl.name] = PropertyResult(
@@ -427,25 +736,21 @@ def _verify_function(
                             "gap": FIDELITY_GAP,
                         }
                     )
-    else:
-        result.fidelity = None
 
     for pid in wanted:
         if pid in compiled:
-            result.properties.append(compiled[pid])
+            continue
+        if pid in conflicted:
+            compiled[pid] = _conflict_result(pid, conflicted[pid], {"id": pid})
         else:
-            prop = next(p for p in a.intent.properties if p.id == pid)
-            result.properties.append(
-                PropertyResult(
-                    id=pid,
-                    verdict=Verdict.UNPROVEN,
-                    gap=Gap(
-                        reason_code=ReasonCode.NO_STATEMENT,
-                        explanation=f"No Lean statement for: {prop.text}",
-                        next_steps=[f"Add `theorem {pid} ...` to {spec_path.name}."],
-                    ),
-                )
-            )
+            compiled[pid] = _undeclared_result(props[pid], floor, spec_path)
+
+    # Refutation runs on the real Python. The cheap searches check every property, proven ones
+    # included; CrossHair's budget goes to the ones Lean has not settled.
+    settled = {pid for pid, p in compiled.items() if p.proof is not None}
+    if refuted := run_refutation(set(refutable) - settled):
+        _apply_refutation(compiled, refuted)
+    result.properties = [compiled[pid] for pid in wanted]
     return result
 
 
@@ -461,7 +766,7 @@ def verify(
     project = project or LeanProject.locate()
     functions = []
     for target in targets:
-        a = _analyze(target)
+        a = _analyze(target, ws)
         spec_path = (spec_paths or {}).get(target) or ws.spec_path(a.info)
         functions.append(_verify_function(a, ws, spec_path, project, fidelity_n))
     verdicts = [p.verdict for f in functions for p in f.properties]
@@ -493,7 +798,7 @@ class ProveResult(BaseModel):
 def prove_tactics(
     target: str, ws: Workspace, *, spec_path: Path | None = None, project: LeanProject | None = None
 ) -> ProveResult:
-    a = _analyze(target)
+    a = _analyze(target, ws)
     if a.model is None:
         raise ApexToolError(f"{target} is out of scope: {a.gap.explanation if a.gap else ''}")
     project = project or LeanProject.locate()
@@ -523,4 +828,23 @@ def prove_tactics(
         closed=res.closed,
         open=[d.name for d in targets if d.name not in res.closed],
         duration_s=round(res.duration_s, 2),
+    )
+
+
+# ---- refute ----------------------------------------------------------------------------------
+
+
+def refute_target(target: str, ws: Workspace, ids: list[str] | None = None) -> RefuteResult:
+    a = _analyze(target, ws)
+    if a.purity.class_ != "pure":
+        raise ApexToolError(f"{target} is not pure; refutation would run its side effects")
+    if a.sig is None:
+        raise ApexToolError(f"{target}: parameter or return types are outside the MVP subset")
+    return refute(
+        a.info,
+        a.intent,
+        a.sig.params,
+        a.examples,
+        ids=ids,
+        budget_s=ws.config.refute_budget_s,
     )

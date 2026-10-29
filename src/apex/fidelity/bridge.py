@@ -14,18 +14,20 @@ import copy
 import importlib.util
 import sys
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, given, reject, settings
 from hypothesis import strategies as st
 
 from apex.analyze.target import FunctionInfo
 from apex.analyze.types import PyType
 from apex.core.report import Counterexample, FidelitySummary
+from apex.intent.hints import HintEvalError, evaluate
 from apex.lean.project import LeanProject
-from apex.translate.lean import LeanModel
+from apex.translate.lean import LeanModel, leading_asserts
 from apex.translate.literals import normalize, to_lean
 
 DEFAULT_EXAMPLES = 200
@@ -33,26 +35,38 @@ _CHUNK = 50
 _MARK = "APEX-FIDELITY"
 
 
+SUPPRESSED_HEALTH_CHECKS = [
+    HealthCheck.too_slow,
+    HealthCheck.filter_too_much,
+    HealthCheck.data_too_large,
+    HealthCheck.large_base_example,
+]
+
+
 class FidelityError(RuntimeError):
     """The bridge itself could not run (not a disagreement). Maps to a tool error."""
 
 
-def strategy_for(ty: PyType) -> st.SearchStrategy[Any]:
+def strategy_for(ty: PyType, ints: st.SearchStrategy[int] | None = None) -> st.SearchStrategy[Any]:
+    ints = ints if ints is not None else st.integers(min_value=-(2**40), max_value=2**40)
     match ty.kind:
         case "int":
-            return st.integers(min_value=-(2**40), max_value=2**40)
+            return ints
         case "bool":
             return st.booleans()
         case "list":
-            return st.lists(strategy_for(ty.args[0]), max_size=12)
+            return st.lists(strategy_for(ty.args[0], ints), max_size=12)
         case "tuple":
-            return st.tuples(*(strategy_for(a) for a in ty.args))
+            return st.tuples(*(strategy_for(a, ints) for a in ty.args))
         case "option":
-            return st.none() | strategy_for(ty.args[0])
+            return st.none() | strategy_for(ty.args[0], ints)
     raise FidelityError(f"no strategy for {ty.kind}")
 
 
-def generate_inputs(params: list[PyType], n: int) -> list[tuple[Any, ...]]:
+def generate_inputs(
+    params: list[PyType], n: int, accept: Callable[[tuple[Any, ...]], bool] | None = None
+) -> list[tuple[Any, ...]]:
+    """Up to `n` distinct inputs; with `accept`, only inputs it accepts (e.g. preconditions)."""
     collected: list[tuple[Any, ...]] = []
 
     @settings(
@@ -60,15 +74,12 @@ def generate_inputs(params: list[PyType], n: int) -> list[tuple[Any, ...]]:
         database=None,
         derandomize=True,
         deadline=None,
-        suppress_health_check=[
-            HealthCheck.too_slow,
-            HealthCheck.filter_too_much,
-            HealthCheck.data_too_large,
-            HealthCheck.large_base_example,
-        ],
+        suppress_health_check=SUPPRESSED_HEALTH_CHECKS,
     )
     @given(st.tuples(*(strategy_for(t) for t in params)))
     def collect(args: tuple[Any, ...]) -> None:
+        if accept is not None and not accept(args):
+            reject()
         collected.append(args)
 
     collect()
@@ -77,6 +88,11 @@ def generate_inputs(params: list[PyType], n: int) -> list[tuple[Any, ...]]:
 
 
 def load_python_function(info: FunctionInfo) -> Any:
+    return getattr(load_module(info), info.qualname)
+
+
+def load_module(info: FunctionInfo) -> Any:
+    """Import the target's module fresh (never from sys.modules), so edits are always seen."""
     name = f"_apex_fidelity_{info.module}_{uuid.uuid4().hex[:8]}"
     spec = importlib.util.spec_from_file_location(name, info.path)
     if spec is None or spec.loader is None:
@@ -89,7 +105,7 @@ def load_python_function(info: FunctionInfo) -> Any:
         raise FidelityError(f"importing {info.path} failed: {type(e).__name__}: {e}") from e
     finally:
         sys.path.pop(0)
-    return getattr(module, info.qualname)
+    return module
 
 
 @dataclass
@@ -160,12 +176,26 @@ def check_fidelity(
 ) -> FidelitySummary:
     project = project or LeanProject.locate()
     sig = model.target_sig
-    inputs = generate_inputs([t for _, t in sig.params], n)
-    fn = load_python_function(info)
+    names = [p for p, _ in sig.params]
+    module = load_module(info)
+    fn = getattr(module, info.qualname)
+    # The model leaves out leading asserts (preconditions), so it is compared only where they
+    # hold: where they fail, Python returns nothing a theorem could be wrong about.
+    pres = [a.test for a in leading_asserts(info.node)]
+
+    def accept(args: tuple[Any, ...]) -> bool:
+        env = dict(zip(names, args, strict=True))
+        try:
+            return all(evaluate(c, env, vars(module)) for c in pres)
+        except HintEvalError:
+            return False
+
+    inputs = generate_inputs([t for _, t in sig.params], n, accept if pres else None)
+    if not inputs:
+        raise FidelityError("no generated input satisfies the function's leading asserts")
     py = [_run_python(fn, args) for args in inputs]
     lean = run_lean_model(model, inputs, project, timeout_s)
 
-    names = [p for p, _ in sig.params]
     mismatches: list[Counterexample] = []
     for args, p, out in zip(inputs, py, lean, strict=True):
         if p.error is None and not p.mutated and normalize(p.value) == normalize(out):
@@ -185,8 +215,11 @@ def check_fidelity(
                 found_by="hypothesis",
             )
         )
+    domain = " and ".join(ast.unparse(c) for c in pres) or None
     if not mismatches:
-        return FidelitySummary(agree=True, inputs_checked=len(inputs))
+        return FidelitySummary(agree=True, inputs_checked=len(inputs), domain=domain)
     # No cross-language shrinking yet: report the smallest disagreement we saw.
     smallest = min(mismatches, key=lambda c: len(repr(c.inputs)))
-    return FidelitySummary(agree=False, inputs_checked=len(inputs), mismatch=smallest)
+    return FidelitySummary(
+        agree=False, inputs_checked=len(inputs), mismatch=smallest, domain=domain
+    )

@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "Counterexample": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "found_by": {
+          "enum": [
+            "crosshair",
+            "hypothesis",
+            "example"
+          ],
+          "title": "Found By",
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "inputs",
+        "found_by"
+      ],
+      "title": "Counterexample",
+      "type": "object"
+    },
+    "PropertyRefutation": {
+      "properties": {
+        "counterexample": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Counterexample"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "refuted": {
+          "title": "Refuted",
+          "type": "boolean"
+        },
+        "searched_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Searched By",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "refuted"
+      ],
+      "title": "PropertyRefutation",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "properties": {
+      "items": {
+        "$ref": "#/$defs/PropertyRefutation"
+      },
+      "title": "Properties",
+      "type": "array"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target"
+  ],
+  "title": "RefuteResult",
+  "type": "object"
+}

@@ -20,6 +20,7 @@ from apex.lean.project import LeanProject, LeanUnavailable, find_elan
 
 if TYPE_CHECKING:
     from apex.core.report import Report
+    from apex.intent.proposals import ProposalCheck
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -46,8 +47,14 @@ _STATUS_STYLE = {
 CONFIG_TEMPLATE = """\
 [apex]
 schema_version = "1"
-model_provider = "none"            # anthropic | openai | host | none
+# How LLM steps reach a model (default: none; every deterministic verb works without one):
+#   anthropic | openai   API key from ANTHROPIC_API_KEY / OPENAI_API_KEY
+#   claude-code | codex  the coding agent CLI you already have installed and logged in
+#   host                 the agent driving Apex proposes, via `apex intent submit`
+model_provider = "none"
+# model = "..."                    # optional; unset means the provider's default
 proof_budget_s = 120               # per theorem
+refute_budget_s = 10               # CrossHair time per property
 retries = 4                        # fixer-loop iterations
 confidence_floor = 0.6             # below this, a property is flagged SPEC_AMBIGUOUS
 fail_on = ["refuted", "fidelity_failed", "contradiction"]
@@ -239,13 +246,24 @@ def _tool_errors(as_json: bool) -> Iterator[None]:
         _fail(as_json, str(e))
 
 
+EnglishOpt = Annotated[
+    Path | None,
+    typer.Option(
+        "--english",
+        help="English spec (Markdown) to register for this function; `<module>.spec.md` "
+        "beside the module is read automatically.",
+    ),
+]
+
+
 @app.command()
-def analyze(target: Target, as_json: JsonFlag = False) -> None:
-    """Purity class, pure-core slice, and the Intent Model skeleton from docstrings and tests."""
+def analyze(target: Target, english: EnglishOpt = None, as_json: JsonFlag = False) -> None:
+    """Purity, pure-core slice, and the Intent Model fused from docstring, tests, source and
+    English spec."""
     from apex import pipeline
 
     with _tool_errors(as_json):
-        result = pipeline.analyze(target)
+        result = pipeline.analyze(target, pipeline.Workspace.discover(), english)
     if as_json:
         typer.echo(result.model_dump_json(indent=2, by_alias=True))
         return
@@ -261,8 +279,21 @@ def analyze(target: Target, as_json: JsonFlag = False) -> None:
     if result.pure_core:
         console.print("  pure core:")
         console.print(result.pure_core, markup=False, highlight=False)
+    for c in intent.preconditions:
+        src = ", ".join(f"{s.type} {s.loc}" for s in c.sources)
+        console.print(f"  {c.id} [precondition] {escape(c.formal_hint or c.text)}  ({src})")
     for p in intent.properties:
-        console.print(f"  {p.id} [{p.kind}] {p.text}  ({p.sources[0].type} {p.sources[0].loc})")
+        src = ", ".join(f"{s.type} {s.loc}" for s in p.sources)
+        hint = f"  `{escape(p.formal_hint)}`" if p.formal_hint and p.kind != "example" else ""
+        by = f" by {p.proposed_by}" if p.proposed_by else ""
+        console.print(
+            f"  {p.id} [{p.kind}] {escape(p.text)}{hint}  ({src}; confidence {p.confidence}{by})"
+        )
+    if result.needs_formalizing:
+        console.print(
+            f"  [yellow]needs a formal hint:[/] {', '.join(result.needs_formalizing)} "
+            "(`apex intent propose`, or `apex intent submit` from an agent)"
+        )
     for c in intent.conflicts:
         console.print(f"  [red]conflict[/] {', '.join(c.property_ids)}: {c.description}")
     if result.lean_model:
@@ -282,7 +313,13 @@ def scaffold(target: Target, as_json: JsonFlag = False) -> None:
     else:
         if result.model_path:
             console.print(f"model: {result.model_path}  compiles: {result.model_compiles}")
-            state = "written" if result.spec_written else "exists, left untouched"
+            state = (
+                "written"
+                if result.spec_written
+                else f"appended {', '.join(result.appended)}"
+                if result.appended
+                else "exists, nothing new to add"
+            )
             console.print(f"spec:  {result.spec_path}  ({state})")
         if result.gap:
             console.print(f"[yellow]{result.gap.reason_code}[/]: {result.gap.explanation}")
@@ -322,6 +359,126 @@ def verify(
             fidelity_n=fidelity_examples,
         )
     _emit_report(report, as_json, markdown)
+
+
+@app.command()
+def refute(
+    target: Target,
+    prop: Annotated[
+        list[str] | None, typer.Option("--property", "-p", help="Only these property IDs.")
+    ] = None,
+    as_json: JsonFlag = False,
+) -> None:
+    """Search the real Python for counterexamples (examples, Hypothesis, CrossHair)."""
+    from apex import pipeline
+
+    with _tool_errors(as_json):
+        result = pipeline.refute_target(target, pipeline.Workspace.discover(), prop)
+    refuted = [p for p in result.properties if p.refuted]
+    if as_json:
+        typer.echo(result.model_dump_json(indent=2))
+    else:
+        for p in result.properties:
+            if p.refuted and p.counterexample:
+                cx = p.counterexample
+                args = ", ".join(f"{k}={v}" for k, v in cx.inputs.items())
+                console.print(
+                    f"  [red]refuted[/]  {p.id}  {escape(args)} -> {escape(cx.actual or '')}"
+                    f"  (expected {escape(cx.expected or '')}; found by {cx.found_by})"
+                )
+            else:
+                how = ", ".join(p.searched_by) or "not searched"
+                note = f"; {p.note}" if p.note else ""
+                console.print(f"  no counterexample  {p.id}  ({how}{escape(note)})")
+    raise typer.Exit(ExitCode.FAILURE if refuted else ExitCode.OK)
+
+
+intent_app = typer.Typer(
+    help="Formal hints proposed by a model (engine mode) or by the agent driving Apex (host "
+    "mode). Proposals are checked, never trusted.",
+    no_args_is_help=True,
+)
+app.add_typer(intent_app, name="intent")
+
+
+def _emit_check(check: "ProposalCheck", as_json: bool) -> NoReturn:
+    if as_json:
+        typer.echo(check.model_dump_json(indent=2))
+    else:
+        acc = check.accepted
+        console.print(
+            f"accepted {len(acc.properties)} properties and {len(acc.preconditions)} "
+            f"preconditions from {escape(acc.proposed_by)}"
+        )
+        for p in acc.properties:
+            item = f"{p.item} " if p.item else ""
+            console.print(f"  + {item}{escape(p.text)}  `{escape(p.formal_hint)}`  ({p.basis})")
+        for c in acc.preconditions:
+            console.print(f"  + requires `{escape(c.formal_hint)}`  ({c.basis})")
+        for r in check.rejected:
+            console.print(
+                f"  [red]rejected[/] {r.kind} {r.index}: `{escape(r.formal_hint)}`: "
+                f"{escape(r.reason)}"
+            )
+        console.print("Run `apex scaffold` to draft theorems from the new hints.")
+    raise typer.Exit(ExitCode.OK if not check.rejected else ExitCode.GAPS)
+
+
+@intent_app.command("propose")
+def intent_propose(
+    target: Target,
+    provider: Annotated[
+        str | None,
+        typer.Option(help="anthropic, openai, claude-code or codex (default: apex.toml)."),
+    ] = None,
+    from_source: Annotated[
+        bool,
+        typer.Option(
+            "--from-source",
+            help="Also show the model the function body and accept intent read off the code "
+            "(lower confidence: it assumes the code is right).",
+        ),
+    ] = False,
+    as_json: JsonFlag = False,
+) -> None:
+    """Ask a model to formalize the English spec items and docstring prose into formal hints."""
+    from apex import pipeline
+
+    with _tool_errors(as_json):
+        check = pipeline.propose_intent(
+            target, pipeline.Workspace.discover(), provider=provider, from_source=from_source
+        )
+    _emit_check(check, as_json)
+
+
+@intent_app.command("submit")
+def intent_submit(
+    target: Target,
+    file: Annotated[Path, typer.Option("--file", "-f", help="ProposalSet JSON (`-` for stdin).")],
+    replace: Annotated[
+        bool, typer.Option("--replace", help="Drop previously stored proposals first.")
+    ] = False,
+    as_json: JsonFlag = False,
+) -> None:
+    """Host mode: check formal hints written by the agent driving Apex, and store the valid ones.
+
+    Schema: `apex schema` writes proposal_set.schema.json.
+    """
+    from pydantic import ValidationError
+
+    from apex import pipeline
+    from apex.intent.proposals import ProposalSet
+
+    raw = sys.stdin.read() if str(file) == "-" else file.read_text()
+    try:
+        proposals = ProposalSet.model_validate_json(raw)
+    except ValidationError as e:
+        _fail(as_json, f"not a valid ProposalSet: {e}")
+    with _tool_errors(as_json):
+        check = pipeline.submit_proposals(
+            target, pipeline.Workspace.discover(), proposals, replace=replace
+        )
+    _emit_check(check, as_json)
 
 
 @app.command()

@@ -17,10 +17,20 @@ class ApexConfig(BaseModel):
 
     schema_version: Literal["1"] = SCHEMA_VERSION
     # The default engine-mode provider is an open decision (handoff section 12); until it is made,
-    # engine mode is opt-in and deterministic verbs work with no provider at all.
-    model_provider: Literal["anthropic", "openai", "host", "none"] = "none"
+    # LLM steps are opt-in and deterministic verbs work with no provider at all.
+    #   anthropic | openai     -> API key from ANTHROPIC_API_KEY / OPENAI_API_KEY
+    #   claude-code | codex    -> the coding agent CLI already installed and logged in
+    #   host                   -> the agent driving Apex proposes, via `apex intent submit`
+    model_provider: Literal["anthropic", "openai", "claude-code", "codex", "host", "none"] = "none"
+    model: str | None = Field(
+        default=None, description="Model for the provider; unset means the provider's default."
+    )
+    llm_timeout_s: float = Field(default=300, gt=0, description="Per LLM call.")
     proof_budget_s: float = Field(default=120, gt=0, description="Per theorem.")
     retries: int = Field(default=4, ge=0, description="Fixer-loop iterations.")
+    refute_budget_s: float = Field(
+        default=10, gt=0, description="CrossHair time per property, on the real Python."
+    )
     confidence_floor: float = Field(
         default=0.6, ge=0, le=1, description="Below this, a property is flagged SPEC_AMBIGUOUS."
     )

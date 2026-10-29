@@ -9,3 +9,11 @@ theorem P2 (x : Int) (h : 0 < x) : sign x = 1 := by
 /-- P3: sign x * x is never negative -/
 theorem P3 (x : Int) : 0 ≤ sign x * x := by
   sorry
+
+/-- P4: zero gives 0 -/
+theorem P4 : sign 0 = 0 := by
+  sorry
+
+/-- P5: negative inputs give -1 -/
+theorem P5 (x : Int) (h : x < 0) : sign x = -1 := by
+  sorry
