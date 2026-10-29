@@ -1,0 +1,14 @@
+{
+  "description": "What any command prints with --json when it exits 3 (tool error).",
+  "properties": {
+    "error": {
+      "title": "Error",
+      "type": "string"
+    }
+  },
+  "required": [
+    "error"
+  ],
+  "title": "ToolErrorOutput",
+  "type": "object"
+}

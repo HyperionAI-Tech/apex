@@ -1,0 +1,16 @@
+{
+  "properties": {
+    "written": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Written",
+      "type": "array"
+    }
+  },
+  "required": [
+    "written"
+  ],
+  "title": "SchemaExport",
+  "type": "object"
+}

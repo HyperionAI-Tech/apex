@@ -122,6 +122,18 @@
           ],
           "default": null
         },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        },
         "properties": {
           "items": {
             "$ref": "#/$defs/PropertyResult"
@@ -464,6 +476,18 @@
       ],
       "title": "Mode",
       "type": "string"
+    },
+    "provider": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider"
     },
     "schema_version": {
       "const": "1",

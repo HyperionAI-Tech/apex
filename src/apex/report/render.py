@@ -4,7 +4,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from apex.core.report import PropertyResult, Report
+from apex.core.report import PropertyResult, Report, function_verdict
 from apex.core.verdict import Verdict
 
 STYLE = {
@@ -46,11 +46,11 @@ def print_report(report: Report, console: Console | None = None) -> None:
     for col in ("function", "property", "verdict", "detail"):
         table.add_column(col, overflow="fold")
     for f in report.functions:
-        if not f.properties and f.gap:
+        if (whole := function_verdict(f)) and f.gap:
             table.add_row(
                 f.qualname,
                 "-",
-                f"[dim]{Verdict.OUT_OF_SCOPE}[/]",
+                f"[{STYLE[whole]}]{whole}[/]",
                 escape(f"{f.gap.reason_code}: {f.gap.explanation}"),
             )
         for p in f.properties:
@@ -73,8 +73,9 @@ def to_markdown(report: Report) -> str:
 
     lines = ["| function | property | verdict | detail |", "|---|---|---|---|"]
     for f in report.functions:
-        if not f.properties and f.gap:
-            lines.append(f"| `{f.qualname}` | - | `out_of_scope` | {esc(f.gap.explanation)} |")
+        if (whole := function_verdict(f)) and f.gap:
+            gap = f"{f.gap.reason_code}: {f.gap.explanation}"
+            lines.append(f"| `{f.qualname}` | - | `{whole}` | {esc(gap)} |")
         for p in f.properties:
             lines.append(f"| `{f.qualname}` | {p.id} | `{p.verdict}` | {esc(detail(p))} |")
     return "\n".join(lines) + "\n"

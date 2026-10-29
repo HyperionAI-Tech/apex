@@ -4,11 +4,16 @@ Each verb accepts candidates from outside (a spec file written by a human, an ag
 or Apex's own LLM client in engine mode) and checks them. None of them calls a model.
 """
 
+import fnmatch
 import json
 import os
 import re
-from dataclasses import dataclass, field
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -16,13 +21,16 @@ from apex import __version__
 from apex.analyze.purity import PurityResult, classify
 from apex.analyze.target import FunctionInfo, load_function
 from apex.core.config import ApexConfig
+from apex.core.hashing import sha256_text
 from apex.core.intent import Conflict, IntentModel, Property
 from apex.core.report import (
     FunctionResult,
     Gap,
     ProofArtifact,
     PropertyResult,
+    Provenance,
     Report,
+    run_verdicts,
 )
 from apex.core.verdict import ReasonCode, Verdict, exit_code_for
 from apex.fidelity.bridge import FidelityError, check_fidelity
@@ -50,6 +58,9 @@ from apex.theorems.spec import Spec, SpecDecl, SpecError, parse_spec, render_dec
 from apex.translate.lean import FunctionSig, LeanModel, TranslationError, signature, translate
 from apex.translate.literals import LiteralError, to_lean
 
+if TYPE_CHECKING:
+    from apex.llm.providers import Provider
+
 FILE_HEADER = "import Apex.Prelude\n"
 OPTIONS = "set_option autoImplicit false\nset_option relaxedAutoImplicit false\n"
 
@@ -61,6 +72,17 @@ FIDELITY_GAP = Gap(
     next_steps=[
         "If Python raises here, guard the input and return None, or add a precondition.",
         "Otherwise report it as an Apex translator bug.",
+    ],
+)
+
+
+NO_INTENT_GAP = Gap(
+    reason_code=ReasonCode.SPEC_AMBIGUOUS,
+    explanation="No intent found: nothing states what this function should do, so there is "
+    "nothing to prove or refute.",
+    next_steps=[
+        "Add doctests or `post:` lines to the docstring, tests in test_<module>.py, or an entry "
+        "in <module>.spec.md.",
     ],
 )
 
@@ -109,6 +131,22 @@ class Workspace:
     def inputs_path(self, info: FunctionInfo) -> Path:
         return self._fn_dir("intent", info) / "inputs.json"
 
+    def provenance_path(self, info: FunctionInfo) -> Path:
+        """Who proposed each proof in the spec, keyed by a hash of the proof text."""
+        return self._fn_dir("intent", info) / "provenance.json"
+
+    def proof_provenance(self, info: FunctionInfo) -> dict[str, dict[str, str]]:
+        path = self.provenance_path(info)
+        return json.loads(path.read_text()) if path.is_file() else {}
+
+    def record_proofs(self, info: FunctionInfo, by: str, proofs: dict[str, str]) -> None:
+        data = self.proof_provenance(info)
+        for pid, proof in proofs.items():
+            data[pid] = {"proof_by": by, "proof_sha256": _proof_sha(proof)}
+        path = self.provenance_path(info)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
     def english_specs(self, info: FunctionInfo) -> list[Path]:
         """English specs for a function: `<module>.spec.md` beside it, plus any registered."""
         out = []
@@ -148,6 +186,10 @@ class Workspace:
 
 def function_id(info: FunctionInfo) -> str:
     return f"{info.module}.{info.qualname}"
+
+
+def _proof_sha(proof: str) -> str:
+    return sha256_text(" ".join(proof.split()))
 
 
 # ---- analyze ---------------------------------------------------------------------------------
@@ -539,6 +581,16 @@ def _same_claim(decl: SpecDecl, prop: Property, a: _Analysis) -> bool:
         return False
 
 
+def _provenance(
+    decl: SpecDecl, prop: Property | None, proof_by: dict[str, dict[str, str]], a: _Analysis
+) -> Provenance:
+    """Which model (if any) proposed the hint behind this statement, and the proof. Debug only."""
+    statement_by = prop.proposed_by if prop and _same_claim(decl, prop, a) else None
+    rec = proof_by.get(decl.name)
+    by = rec["proof_by"] if rec and rec.get("proof_sha256") == _proof_sha(decl.proof) else None
+    return Provenance(statement_by=statement_by, proof_by=by if decl.has_proof else None)
+
+
 def _conflict_result(pid: str, c: Conflict, base: dict) -> PropertyResult:
     return PropertyResult(
         **base,
@@ -610,6 +662,7 @@ def _verify_function(
         qualname=fid,
         file=str(info.path),
         sha256=info.sha256,
+        line=info.lineno,
         purity=a.purity.class_,
         pure_core=a.purity.pure_core,
     )
@@ -619,6 +672,9 @@ def _verify_function(
     wanted = list(declared) + [pid for pid in props if pid not in declared]
     conflicted = {pid: c for c in a.intent.conflicts for pid in c.property_ids}
     floor = ws.config.confidence_floor
+    if not wanted:
+        result.gap = a.gap or NO_INTENT_GAP
+        return result
     refutable = [
         pid
         for pid in wanted
@@ -659,10 +715,16 @@ def _verify_function(
 
     model = a.model
     store = ws.review_store
+    proof_by = ws.proof_provenance(info)
     compiled: dict[str, PropertyResult] = {}
     for decl in spec.properties:
         review = store.status(fid, info.sha256, decl.name, decl.statement_sha256)
-        base = {"id": decl.name, "lean_statement": decl.full_statement, "review": review}
+        base = {
+            "id": decl.name,
+            "lean_statement": decl.full_statement,
+            "review": review,
+            "provenance": _provenance(decl, props.get(decl.name), proof_by, a),
+        }
         if decl.name in conflicted:
             compiled[decl.name] = _conflict_result(decl.name, conflicted[decl.name], base)
             continue
@@ -762,21 +824,25 @@ def verify(
     project: LeanProject | None = None,
     fidelity_n: int = 200,
     write_report: bool = True,
+    mode: str = "host",
+    provider: str | None = None,
+    deadline: float | None = None,
 ) -> Report:
     project = project or LeanProject.locate()
     functions = []
     for target in targets:
+        _check_deadline(deadline)
         a = _analyze(target, ws)
         spec_path = (spec_paths or {}).get(target) or ws.spec_path(a.info)
         functions.append(_verify_function(a, ws, spec_path, project, fidelity_n))
-    verdicts = [p.verdict for f in functions for p in f.properties]
     report = Report(
         apex_version=__version__,
-        mode="host",
+        mode=mode,  # type: ignore[arg-type]
+        provider=provider,
         lean_toolchain=project.toolchain,
         mathlib_rev=project.mathlib_rev,
         functions=functions,
-        exit_code=int(exit_code_for(verdicts, ws.config.fail_on)),
+        exit_code=int(exit_code_for(run_verdicts(functions), ws.config.fail_on)),
     )
     if write_report:
         ws.last_report.parent.mkdir(parents=True, exist_ok=True)
@@ -784,15 +850,35 @@ def verify(
     return report
 
 
+class RunTimeout(ApexToolError):
+    """The whole run exceeded its time budget (exit code 3)."""
+
+
+def _check_deadline(deadline: float | None) -> None:
+    if deadline is not None and time.monotonic() > deadline:
+        raise RunTimeout("the run exceeded its time budget (--timeout)")
+
+
 # ---- prove --tactics-only --------------------------------------------------------------------
+
+
+TACTICS_PROVENANCE = "apex:tactics"
 
 
 class ProveResult(BaseModel):
     spec_path: str
     closed: dict[str, str]
-    """Property -> tactic proof written into the spec."""
+    """Property -> proof written into the spec (tactic tiers, or a model in engine mode)."""
     open: list[str]
     duration_s: float
+    proposed_by: str | None = None
+    """Engine mode: the provider whose proofs were tried."""
+    attempts: dict[str, int] = {}
+    """Engine mode: model proposals tried per property."""
+    errors: dict[str, str] = {}
+    """Engine mode: why each still-open property's last attempt failed."""
+    skipped: dict[str, str] = {}
+    """Engine mode: properties no model was asked to prove, and why (already refuted)."""
 
 
 def prove_tactics(
@@ -823,6 +909,7 @@ def prove_tactics(
         if proof := res.closed.get(decl.name):
             text = text.replace(decl.text.rstrip("\n"), render_decl(decl, proof).rstrip("\n"), 1)
     spec_path.write_text(text)
+    ws.record_proofs(a.info, TACTICS_PROVENANCE, res.closed)
     return ProveResult(
         spec_path=str(spec_path),
         closed=res.closed,
@@ -848,3 +935,287 @@ def refute_target(target: str, ws: Workspace, ids: list[str] | None = None) -> R
         ids=ids,
         budget_s=ws.config.refute_budget_s,
     )
+
+
+# ---- prove (engine mode) ---------------------------------------------------------------------
+
+
+def prove_llm(
+    target: str,
+    ws: Workspace,
+    llm: "Provider",
+    *,
+    spec_path: Path | None = None,
+    project: LeanProject | None = None,
+    deadline: float | None = None,
+) -> ProveResult:
+    """A model proposes proofs for the spec's open theorems; Lean's errors go back to it.
+
+    Proofs that pass the fast check are written into the spec, so the verdict still comes from
+    `verify`'s cold compile and axiom audit, exactly as for a proof a person wrote.
+    """
+    from apex.prove.llm import ProofContext, ProofSearch, search_proof, splice
+    from apex.prove.tactics import tiers
+
+    a = _analyze(target, ws)
+    if a.model is None:
+        raise ApexToolError(f"{target} is out of scope: {a.gap.explanation if a.gap else ''}")
+    project = project or LeanProject.locate()
+    spec_path = spec_path or ws.spec_path(a.info)
+    spec = load_spec(spec_path)
+    started = time.monotonic()
+    refuted = _quick_refuted(a, spec, ws)
+    targets = [d for d in spec.properties if not d.has_proof and d.name not in refuted]
+    if not targets:
+        return ProveResult(
+            spec_path=str(spec_path),
+            closed={},
+            open=sorted(refuted),
+            duration_s=round(time.monotonic() - started, 2),
+            proposed_by=llm.name,
+            skipped={pid: "refuted on the real Python" for pid in sorted(refuted)},
+        )
+    text = spec_path.read_text()
+    ctx = ProofContext(
+        namespace=a.model.namespace,
+        model=a.model.text,
+        spec_text=text,
+        spec=spec,
+        header=FILE_HEADER + "".join(f"import {m}\n" for m in spec.imports) + OPTIONS,
+        prelude=(project.root / "Apex" / "Prelude.lean").read_text(),
+        project=project,
+        timeout_s=ws.config.proof_budget_s,
+    )
+
+    def_names = a.model.def_names
+
+    def run(decl: SpecDecl) -> "ProofSearch":
+        tried = replace(ctx, tried_tactics=tiers(def_names, decl))
+        return search_proof(llm, tried, decl, attempts=ws.config.retries + 1, deadline=deadline)
+
+    with ThreadPoolExecutor(max_workers=max(1, ws.config.llm_parallel)) as pool:
+        searches = list(pool.map(run, targets))
+
+    closed: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    for search in searches:
+        current = parse_spec(text)
+        decl = current.get(search.name)
+        if search.closed is None or decl is None:
+            errors[search.name] = search.last_error or "no proof found"
+            continue
+        try:
+            text = splice(text, current, decl, search.closed)
+        except ValueError as e:  # cannot happen after a passing fast check, but never guess
+            errors[search.name] = str(e)
+            continue
+        closed[search.name] = search.closed.proof
+    spec_path.write_text(text)
+    final = {d.name: d.proof for d in parse_spec(text).decls}
+    ws.record_proofs(a.info, llm.name, {n: final[n] for n in closed})
+    return ProveResult(
+        spec_path=str(spec_path),
+        closed=closed,
+        open=[d.name for d in targets if d.name not in closed] + sorted(refuted),
+        duration_s=round(time.monotonic() - started, 2),
+        proposed_by=llm.name,
+        attempts={s.name: len(s.attempts) for s in searches},
+        errors=errors,
+        skipped={pid: "refuted on the real Python" for pid in sorted(refuted)},
+    )
+
+
+def _quick_refuted(a: _Analysis, spec: Spec, ws: Workspace) -> set[str]:
+    """Spec theorems whose claim the cheap searches (examples, Hypothesis) already break.
+
+    No model time is spent proving a statement the real Python violates; `verify` still runs the
+    full refutation and gives the verdict.
+    """
+    if a.purity.class_ != "pure" or a.sig is None:
+        return set()
+    props = {p.id: p for p in a.intent.properties}
+    conflicted = {pid for c in a.intent.conflicts for pid in c.property_ids}
+    ids = [
+        d.name
+        for d in spec.properties
+        if not d.has_proof
+        and d.name in props
+        and d.name not in conflicted
+        and _same_claim(d, props[d.name], a)
+    ]
+    if not ids:
+        return set()
+    res = refute(
+        a.info,
+        a.intent,
+        a.sig.params,
+        a.examples,
+        ids=ids,
+        crosshair_ids=set(),
+        budget_s=ws.config.refute_budget_s,
+    )
+    return {r.id for r in res.properties if r.refuted}
+
+
+# ---- check (engine mode: the full pipeline over files and packages) ---------------------------
+
+_SKIP_DIRS = {".git", ".apex", ".venv", "venv", "node_modules", "__pycache__", "build", "dist"}
+
+
+def _is_test_file(path: Path) -> bool:
+    return path.name.startswith("test_") or path.name.endswith("_test.py") or (
+        path.name == "conftest.py"
+    )
+
+
+def discover_targets(
+    paths: list[str], ws: Workspace, *, include_private: bool = False
+) -> list[str]:
+    """`path.py::fn` targets for every function to check.
+
+    Directories are walked for `.py` files, skipping test files, the config's `ignore` globs and
+    tool directories. Private functions (`_name`) are skipped unless asked for: they are checked
+    as part of the public functions that call them.
+    """
+    from apex.analyze.target import TargetError, top_level_functions
+
+    out: list[str] = []
+    for raw in paths:
+        if "::" in raw:
+            out.append(raw)
+            continue
+        path = Path(raw)
+        if path.is_file():
+            files = [path]
+        elif path.is_dir():
+            files = sorted(
+                f
+                for f in path.rglob("*.py")
+                if not _SKIP_DIRS & set(f.relative_to(path).parts[:-1])
+                and not _is_test_file(f)
+                and not _ignored(f, ws)
+            )
+        else:
+            raise ApexToolError(f"no such file or directory: {raw}")
+        for f in files:
+            try:
+                names = top_level_functions(f)
+            except TargetError as e:
+                raise ApexToolError(str(e)) from e
+            out += [f"{f}::{n}" for n in names if include_private or not n.startswith("_")]
+    return list(dict.fromkeys(out))
+
+
+def _ignored(path: Path, ws: Workspace) -> bool:
+    try:
+        rel = path.resolve().relative_to(ws.root).as_posix()
+    except ValueError:
+        return False
+    return any(fnmatch.fnmatch(rel, pat) for pat in ws.config.ignore)
+
+
+class CheckStep(BaseModel):
+    target: str
+    step: str
+    detail: str
+
+
+@dataclass
+class CheckRun:
+    report: Report
+    steps: list[CheckStep]
+
+
+def check(
+    paths: list[str],
+    ws: Workspace,
+    *,
+    provider: str | None = None,
+    use_llm: bool = True,
+    include_private: bool = False,
+    timeout_s: float | None = None,
+    project: LeanProject | None = None,
+    fidelity_n: int = 200,
+    on_step: Callable[[CheckStep], None] | None = None,
+) -> CheckRun:
+    """Engine mode: analyze, formalize, scaffold, prove (tactics, then a model) and verify.
+
+    Without a model provider the LLM steps are skipped and every deterministic step still runs,
+    so `apex check` is useful (and honest) with `model_provider = "none"`.
+    """
+    from apex.llm.providers import ProviderError, get_provider
+
+    deadline = time.monotonic() + timeout_s if timeout_s else None
+    targets = discover_targets(paths, ws, include_private=include_private)
+    if not targets:
+        raise ApexToolError("no functions to check under " + ", ".join(paths))
+    llm = None
+    if use_llm and (provider or ws.config.model_provider not in ("none", "host")):
+        try:
+            llm = get_provider(ws.config, provider)
+        except ProviderError as e:
+            raise ApexToolError(str(e)) from e
+    project = project or LeanProject.locate()
+    project.lean_command()  # fail fast (exit 3) before any work if Lean is missing
+    steps: list[CheckStep] = []
+
+    def note(target: str, step: str, detail: str) -> None:
+        s = CheckStep(target=target, step=step, detail=detail)
+        steps.append(s)
+        if on_step:
+            on_step(s)
+
+    for target in targets:
+        _check_deadline(deadline)
+        a = _analyze(target, ws)
+        needs_hints = any(p.kind != "example" and not p.formal_hint for p in a.intent.properties)
+        if llm is not None and needs_hints and a.purity.class_ == "pure" and a.sig is not None:
+            try:
+                proposed = propose_intent(target, ws, provider=provider)
+            except ApexToolError as e:
+                note(target, "formalize", f"skipped: {e}")
+            else:
+                acc = proposed.accepted
+                note(
+                    target,
+                    "formalize",
+                    f"{llm.name}: accepted {len(acc.properties)} properties and "
+                    f"{len(acc.preconditions)} preconditions, rejected "
+                    f"{len(proposed.rejected)}",
+                )
+            a = _analyze(target, ws)
+        if a.model is None:
+            note(target, "analyze", f"out of scope ({a.gap.reason_code if a.gap else '?'})")
+            continue
+        _check_deadline(deadline)
+        sc = scaffold(target, ws, project)
+        if sc.gap is not None:
+            note(target, "scaffold", f"{sc.gap.reason_code}: {sc.gap.explanation}")
+            continue
+        _check_deadline(deadline)
+        tac = prove_tactics(target, ws, project=project)
+        if tac.closed or tac.open:
+            note(
+                target,
+                "tactics",
+                f"closed {', '.join(tac.closed) or 'none'}; open {', '.join(tac.open) or 'none'}",
+            )
+        if llm is not None and tac.open:
+            _check_deadline(deadline)
+            res = prove_llm(target, ws, llm, project=project, deadline=deadline)
+            note(
+                target,
+                "llm-prove",
+                f"{llm.name} closed {', '.join(res.closed) or 'none'}; "
+                f"open {', '.join(res.open) or 'none'}",
+            )
+    report = verify(
+        targets,
+        ws,
+        project=project,
+        fidelity_n=fidelity_n,
+        mode="engine",
+        provider=llm.name if llm else None,
+        deadline=deadline,
+    )
+    return CheckRun(report, steps)

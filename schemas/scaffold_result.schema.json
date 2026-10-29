@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "Gap": {
+      "additionalProperties": false,
+      "properties": {
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "next_steps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Steps",
+          "type": "array"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/ReasonCode"
+        }
+      },
+      "required": [
+        "reason_code",
+        "explanation"
+      ],
+      "title": "Gap",
+      "type": "object"
+    },
+    "ReasonCode": {
+      "enum": [
+        "UNSUPPORTED_CONSTRUCT",
+        "IMPURE_IO",
+        "FLOAT_SEMANTICS",
+        "NONTERMINATION",
+        "BUDGET_EXHAUSTED",
+        "SPEC_AMBIGUOUS",
+        "SPEC_CONFLICT",
+        "NEEDS_CONCURRENCY_TOOL",
+        "PROOF_REJECTED",
+        "NO_STATEMENT"
+      ],
+      "title": "ReasonCode",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "appended": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Appended",
+      "type": "array"
+    },
+    "gap": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Gap"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model_compiles": {
+      "default": false,
+      "title": "Model Compiles",
+      "type": "boolean"
+    },
+    "model_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Path"
+    },
+    "spec_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Spec Path"
+    },
+    "spec_written": {
+      "default": false,
+      "title": "Spec Written",
+      "type": "boolean"
+    }
+  },
+  "title": "ScaffoldResult",
+  "type": "object"
+}

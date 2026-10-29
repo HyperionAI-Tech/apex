@@ -1,0 +1,423 @@
+{
+  "$defs": {
+    "Conflict": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "property_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Property Ids",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "property_ids",
+        "description"
+      ],
+      "title": "Conflict",
+      "type": "object"
+    },
+    "FunctionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "qualname": {
+          "title": "Qualname",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "qualname",
+        "file",
+        "sha256"
+      ],
+      "title": "FunctionRef",
+      "type": "object"
+    },
+    "Gap": {
+      "additionalProperties": false,
+      "properties": {
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "next_steps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Steps",
+          "type": "array"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/ReasonCode"
+        }
+      },
+      "required": [
+        "reason_code",
+        "explanation"
+      ],
+      "title": "Gap",
+      "type": "object"
+    },
+    "IntentModel": {
+      "additionalProperties": false,
+      "properties": {
+        "conflicts": {
+          "items": {
+            "$ref": "#/$defs/Conflict"
+          },
+          "title": "Conflicts",
+          "type": "array"
+        },
+        "function": {
+          "$ref": "#/$defs/FunctionRef"
+        },
+        "preconditions": {
+          "items": {
+            "$ref": "#/$defs/Precondition"
+          },
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "properties": {
+          "items": {
+            "$ref": "#/$defs/Property"
+          },
+          "title": "Properties",
+          "type": "array"
+        },
+        "purity": {
+          "$ref": "#/$defs/Purity"
+        },
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "signature": {
+          "$ref": "#/$defs/Signature"
+        }
+      },
+      "required": [
+        "function",
+        "purity",
+        "signature"
+      ],
+      "title": "IntentModel",
+      "type": "object"
+    },
+    "Precondition": {
+      "additionalProperties": false,
+      "properties": {
+        "formal_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formal Hint"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "proposed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed By"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "Precondition",
+      "type": "object"
+    },
+    "Property": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "formal_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formal Hint"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "postcondition",
+            "invariant",
+            "equivalence",
+            "termination",
+            "example",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "proposed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed By"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "confidence"
+      ],
+      "title": "Property",
+      "type": "object"
+    },
+    "Purity": {
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "enum": [
+            "pure",
+            "impure",
+            "unknown"
+          ],
+          "title": "Class",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "class"
+      ],
+      "title": "Purity",
+      "type": "object"
+    },
+    "ReasonCode": {
+      "enum": [
+        "UNSUPPORTED_CONSTRUCT",
+        "IMPURE_IO",
+        "FLOAT_SEMANTICS",
+        "NONTERMINATION",
+        "BUDGET_EXHAUSTED",
+        "SPEC_AMBIGUOUS",
+        "SPEC_CONFLICT",
+        "NEEDS_CONCURRENCY_TOOL",
+        "PROOF_REJECTED",
+        "NO_STATEMENT"
+      ],
+      "title": "ReasonCode",
+      "type": "string"
+    },
+    "Signature": {
+      "additionalProperties": false,
+      "properties": {
+        "params": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Params",
+          "type": "array"
+        },
+        "returns": {
+          "title": "Returns",
+          "type": "string"
+        }
+      },
+      "required": [
+        "params",
+        "returns"
+      ],
+      "title": "Signature",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "loc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loc"
+        },
+        "type": {
+          "enum": [
+            "docstring",
+            "test",
+            "spec",
+            "source",
+            "inferred"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "gap": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Gap"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "in_scope": {
+      "title": "In Scope",
+      "type": "boolean"
+    },
+    "intent": {
+      "$ref": "#/$defs/IntentModel"
+    },
+    "lean_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lean Model"
+    },
+    "needs_formalizing": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Needs Formalizing",
+      "type": "array"
+    },
+    "pure_core": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pure Core"
+    },
+    "spec_items": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Spec Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "intent",
+    "in_scope"
+  ],
+  "title": "AnalyzeResult",
+  "type": "object"
+}

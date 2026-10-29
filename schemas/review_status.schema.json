@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "ReviewEntry": {
+      "properties": {
+        "english": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "English"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lean": {
+          "title": "Lean",
+          "type": "string"
+        },
+        "reviewer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewer"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "pending",
+            "lapsed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "lean",
+        "status"
+      ],
+      "title": "ReviewEntry",
+      "type": "object"
+    }
+  },
+  "description": "`apex review <target> --json`: which statements are approved, pending or lapsed.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "spec_path": {
+      "title": "Spec Path",
+      "type": "string"
+    },
+    "statements": {
+      "items": {
+        "$ref": "#/$defs/ReviewEntry"
+      },
+      "title": "Statements",
+      "type": "array"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "spec_path"
+  ],
+  "title": "ReviewStatus",
+  "type": "object"
+}

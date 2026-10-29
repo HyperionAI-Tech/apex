@@ -16,7 +16,26 @@ jobs:
       - run: uv sync --all-extras
       - run: uv run ruff check .
       - run: uv run pyright
-      - run: uv run pytest -m "not lean"
+      - run: uv run pytest -m "not lean and not install"
+      - name: Published JSON Schemas match the contracts
+        run: |
+          uv run apex schema --out schemas
+          git diff --exit-code schemas
+
+  install:
+    # M3: `uv tool install` works and the installed binary keeps the exit-code contract.
+    # Windows is supported through WSL, which this Linux job covers.
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run pytest -m install
 
   skill:
     # The skill never drifts from the Agent Skills spec: validate on every commit.

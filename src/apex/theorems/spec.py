@@ -196,6 +196,9 @@ def parse_spec(text: str) -> Spec:
             continue
         name_end = begin + (len(chunk) - len(head)) + m.end()
         statement = no_comments[name_end : begin + assign].strip()
+        # The declaration ends at its last code character: comment lines after it (a TODO for
+        # the next property, say) are not part of its proof.
+        end = begin + len(no_comments[begin:end].rstrip())
         proof = text[begin + assign + 2 : end].strip()
         doc, doc_start = _doc_before(text, begin)
         if m["name"] in {d.name for d in spec.decls}:

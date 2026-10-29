@@ -81,7 +81,18 @@ def run_doctor(cwd: Path | None = None, *, warm_repl: bool = False) -> DoctorRep
 
     try:
         project: LeanProject | None = LeanProject.locate()
-        checks.append(Check(name="lean_project", status="ok", detail=str(project.root)))
+        assert project is not None
+        if project.is_bundle:
+            checks.append(
+                Check(
+                    name="lean_project",
+                    status="fail",
+                    detail="not set up; run `apex init` (installs into "
+                    f"{LeanProject.installed_for(project.root).root})",
+                )
+            )
+        else:
+            checks.append(Check(name="lean_project", status="ok", detail=str(project.root)))
     except LeanUnavailable as e:
         project = None
         checks.append(Check(name="lean_project", status="fail", detail=str(e)))

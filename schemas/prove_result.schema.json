@@ -1,0 +1,70 @@
+{
+  "properties": {
+    "attempts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "default": {},
+      "title": "Attempts",
+      "type": "object"
+    },
+    "closed": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Closed",
+      "type": "object"
+    },
+    "duration_s": {
+      "title": "Duration S",
+      "type": "number"
+    },
+    "errors": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Errors",
+      "type": "object"
+    },
+    "open": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Open",
+      "type": "array"
+    },
+    "proposed_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proposed By"
+    },
+    "skipped": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "title": "Skipped",
+      "type": "object"
+    },
+    "spec_path": {
+      "title": "Spec Path",
+      "type": "string"
+    }
+  },
+  "required": [
+    "spec_path",
+    "closed",
+    "open",
+    "duration_s"
+  ],
+  "title": "ProveResult",
+  "type": "object"
+}

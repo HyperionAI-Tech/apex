@@ -26,8 +26,18 @@ class ApexConfig(BaseModel):
         default=None, description="Model for the provider; unset means the provider's default."
     )
     llm_timeout_s: float = Field(default=300, gt=0, description="Per LLM call.")
-    proof_budget_s: float = Field(default=120, gt=0, description="Per theorem.")
-    retries: int = Field(default=4, ge=0, description="Fixer-loop iterations.")
+    llm_parallel: int = Field(
+        default=4, ge=1, description="Theorems whose proofs a model works on at the same time."
+    )
+    proof_budget_s: float = Field(
+        default=120, gt=0, description="Per theorem: Lean time for one compile of its proof."
+    )
+    retries: int = Field(
+        default=4,
+        ge=0,
+        description="Fixer-loop iterations: model proposals after the first, each fed Lean's "
+        "errors from the one before.",
+    )
     refute_budget_s: float = Field(
         default=10, gt=0, description="CrossHair time per property, on the real Python."
     )

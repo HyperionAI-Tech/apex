@@ -36,6 +36,7 @@ dev = [
     "types-pyyaml",
     "anthropic>=2.3.0",
     "openai>=3.41.0",
+    "jsonschema>=4.26.0",
 ]
 
 [build-system]
@@ -44,6 +45,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/apex"]
+
+# The pinned Lean project ships inside the wheel as a template; `apex init` copies it to
+# ~/.apex/lean/<pin> and fetches the toolchain and Mathlib cache there.
+[tool.hatch.build.targets.wheel.force-include]
+"lean/lean-toolchain" = "apex/_lean/lean-toolchain"
+"lean/lakefile.toml" = "apex/_lean/lakefile.toml"
+"lean/lake-manifest.json" = "apex/_lean/lake-manifest.json"
+"lean/Apex.lean" = "apex/_lean/Apex.lean"
+"lean/Apex" = "apex/_lean/Apex"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/apex", "lean/lean-toolchain", "lean/lakefile.toml", "lean/lake-manifest.json",
+  "lean/Apex.lean", "lean/Apex", "README.md", "LICENSE", "schemas", "skill"]
 
 [tool.ruff]
 line-length = 100
@@ -66,4 +80,5 @@ venv = ".venv"
 testpaths = ["tests"]
 markers = [
     "lean: needs the pinned Lean toolchain and Mathlib cache (run `apex init` first)",
+    "install: builds the wheel and installs it with `uv tool install` (slow; needs uv)",
 ]

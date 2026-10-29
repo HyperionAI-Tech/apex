@@ -123,7 +123,7 @@ class OpenAIProvider:
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": "apex_proposals",
+                        "name": "apex_answer",
                         "schema": schema,
                         "strict": True,
                     }

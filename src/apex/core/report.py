@@ -86,9 +86,12 @@ class FunctionResult(_Strict):
     qualname: str
     file: str
     sha256: str
+    line: int | None = None
+    """Line of the `def`, for renderers that point at source (SARIF)."""
     purity: Literal["pure", "impure", "unknown"] = "unknown"
     gap: Gap | None = None
-    """Set when the whole function is out of scope (impure, or outside the translatable subset)."""
+    """Set when the whole function is out of scope (impure, or outside the translatable subset),
+    or when no intent was found for it at all (SPEC_AMBIGUOUS)."""
     pure_core: str | None = None
     fidelity: FidelitySummary | None = None
     properties: list[PropertyResult] = Field(default_factory=list)
@@ -98,8 +101,28 @@ class Report(_Strict):
     schema_version: Literal["1"] = SCHEMA_VERSION
     apex_version: str
     mode: Literal["engine", "host"]
+    provider: str | None = None
+    """Engine mode: the model provider Apex called, if any. Provenance, never trust."""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     lean_toolchain: str | None = None
     mathlib_rev: str | None = None
     functions: list[FunctionResult] = Field(default_factory=list)
     exit_code: int
+
+
+def function_verdict(f: FunctionResult) -> Verdict | None:
+    """The verdict a function carries as a whole when it has no properties to judge.
+
+    An out-of-scope function, or one with no intent at all, must count as a gap in the exit code:
+    "every approved property is proven" is never allowed to be vacuously true.
+    """
+    if f.properties or f.gap is None:
+        return None
+    if f.gap.reason_code in (ReasonCode.SPEC_AMBIGUOUS, ReasonCode.NO_STATEMENT):
+        return Verdict.UNPROVEN
+    return Verdict.OUT_OF_SCOPE
+
+
+def run_verdicts(functions: list[FunctionResult]) -> list[Verdict]:
+    out = [p.verdict for f in functions for p in f.properties]
+    return out + [v for f in functions if (v := function_verdict(f)) is not None]

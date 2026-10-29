@@ -1,6 +1,7 @@
 """Eval corpus runner and scoreboard. Printed on every PR; gates every milestone after M1.
 
-    uv run python evals/run.py [--case SUBSTRING] [--json]
+    uv run python evals/run.py [--case SUBSTRING] [--json] [--jobs N]
+    uv run python evals/run.py --provider claude-code [--retries 2]   # engine mode: + a model
 
 Each case runs in a fresh temporary workspace with the whole corpus copied in:
 
@@ -10,7 +11,8 @@ Each case runs in a fresh temporary workspace with the whole corpus copied in:
 3. append the hand-written reference statements, renamed R1, R2, ... (ground truth);
 4. review, mechanized: every R is approved (a person wrote it), and a drafted P is approved only
    if Lean proves it equivalent to some R. That equivalence rate is the statement-fidelity score;
-5. prove with tactic tiers only, then verify (Lean verdicts, fidelity check, refutation).
+5. prove with tactic tiers, then (with --provider) let a model try what they left open, then
+   verify (Lean verdicts, fidelity check, refutation). Closure is reported per prover.
 
 Exit 1 on any false proven (a planted-bug or conflict property proven although it was not
 expected to be, or anything expected refuted/contradictory proven), or any case that misses its
@@ -26,7 +28,9 @@ import sys
 import tempfile
 import time
 import tomllib
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
+from functools import partial
 from pathlib import Path
 
 from equivalence import equivalent_pairs
@@ -34,11 +38,13 @@ from equivalence import equivalent_pairs
 from apex.analyze.target import load_function
 from apex.core.verdict import LEAN_ONLY_VERDICTS, Verdict
 from apex.lean.project import LeanProject
+from apex.llm.providers import Provider
 from apex.pipeline import (
     Workspace,
     _analyze,
     function_id,
     load_spec,
+    prove_llm,
     prove_tactics,
     scaffold,
     verify,
@@ -49,7 +55,7 @@ CORPUS = ROOT / "corpus"
 REVIEWER = "evals: reference statement"
 EQUIV_REVIEWER = "evals: equivalent to a reference statement"
 EXAMPLE_REVIEWER = "evals: literal example from a doctest or test"
-CONFIG = "[apex]\nrefute_budget_s = 3\n"
+CONFIG = "[apex]\nrefute_budget_s = 3\nllm_parallel = 2\n"
 _HOLDS = {"proven", "proven_unreviewed", "unproven"}
 """`holds`: the statement is true of this code. Proving it is right; failing to is a closure gap."""
 _MAY_PROVE = {"proven", "proven_unreviewed", "holds"}
@@ -73,6 +79,8 @@ class CaseResult:
     """Drafted property -> the reference it was shown equivalent to."""
     references: list[str] = field(default_factory=list)
     tactic_closed: list[str] = field(default_factory=list)
+    llm_closed: list[str] = field(default_factory=list)
+    llm_attempts: int = 0
     supplied: list[str] = field(default_factory=list)
     counterexamples: dict[str, str] = field(default_factory=dict)
     seconds: float = 0.0
@@ -120,7 +128,9 @@ def _reference_text(path: Path) -> str:
     return re.sub(r"\btheorem P(\d+)\b", r"theorem R\1", path.read_text())
 
 
-def run_case(case: dict, project: LeanProject) -> CaseResult:
+def run_case(
+    case: dict, project: LeanProject, llm: Provider | None = None, retries: int = 2
+) -> CaseResult:
     res = CaseResult(
         target=case["target"],
         category=case["category"],
@@ -133,7 +143,7 @@ def run_case(case: dict, project: LeanProject) -> CaseResult:
         work = Path(tmp)
         for src in [*CORPUS.glob("*.py"), *CORPUS.glob("*.md")]:
             shutil.copy(src, work / src.name)
-        (work / "apex.toml").write_text(CONFIG)
+        (work / "apex.toml").write_text(CONFIG + f"retries = {retries}\n")
         ws = Workspace.discover(work)
         target = str(work / case["target"])
         try:
@@ -184,7 +194,12 @@ def run_case(case: dict, project: LeanProject) -> CaseResult:
                             statement_sha256=d.statement_sha256,
                             reviewer=approve[d.name],
                         )
-                res.tactic_closed = list(prove_tactics(target, ws, project=project).closed)
+                tactics = prove_tactics(target, ws, project=project)
+                res.tactic_closed = list(tactics.closed)
+                if llm is not None and tactics.open:
+                    proved = prove_llm(target, ws, llm, project=project)
+                    res.llm_closed = list(proved.closed)
+                    res.llm_attempts = sum(proved.attempts.values())
 
             report = verify([target], ws, project=project, write_report=False)
             fn = report.functions[0]
@@ -216,6 +231,7 @@ def scoreboard(results: list[CaseResult]) -> dict:
     proven = [(r, p) for r, p in good_props if r.verdicts.get(p) == Verdict.PROVEN]
     by_tactic = [(r, p) for r, p in proven if p in r.tactic_closed]
     by_supplied = [(r, p) for r, p in proven if p in r.supplied]
+    by_llm = [(r, p) for r, p in proven if p in r.llm_closed]
     drafted = [(r, p) for r in good for p in r.drafted if r.references]
     equiv = [(r, p) for r, p in drafted if p in r.equivalent]
     covered = sum(len(set(r.equivalent.values())) for r in good)
@@ -242,6 +258,8 @@ def scoreboard(results: list[CaseResult]) -> dict:
         "proof_closure": f"{len(proven)}/{len(good_props)}",
         "closed_by_tactics": len(by_tactic),
         "closed_by_supplied_proof": len(by_supplied),
+        "closed_by_llm": len(by_llm),
+        "llm_proposals": sum(r.llm_attempts for r in results),
         "refutation_recall": f"{len(refuted)}/{len(want_ref)}",
         "conflict_detection": f"{len(contra)}/{len(want_con)}",
         "out_of_scope_reason_accuracy": f"{sum(r.reason == r.expected_reason for r in oos)}"
@@ -262,22 +280,37 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", help="Only run cases whose target contains this text.")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--provider", help="Engine mode: a model proves what the tactic tiers leave open."
+    )
+    parser.add_argument("--retries", type=int, default=2, help="Fixer iterations per theorem.")
+    parser.add_argument("--jobs", type=int, default=1, help="Cases run at the same time.")
     args = parser.parse_args()
 
     cases = tomllib.loads((ROOT / "cases.toml").read_text())["case"]
     if args.case:
         cases = [c for c in cases if args.case in c["target"]]
     project = LeanProject.locate()
-    results = []
-    for case in cases:
-        r = run_case(case, project)
-        results.append(r)
+    llm = None
+    if args.provider:
+        from apex.core.config import ApexConfig
+        from apex.llm.providers import get_provider
+
+        llm = get_provider(ApexConfig(model_provider=args.provider))
+    run = partial(run_case, project=project, llm=llm, retries=args.retries)
+    if args.jobs > 1:  # processes: Hypothesis is not thread-safe
+        with ProcessPoolExecutor(max_workers=args.jobs) as pool:
+            results = list(pool.map(run, cases))
+    else:
+        results = [run(c) for c in cases]
+    for r in results:
         if not args.json:
             mark = "ok  " if r.ok else "FAIL"
             got = ", ".join(f"{p}={v}" for p, v in r.verdicts.items())
             if r.reason:
                 got = f"{r.reason}; {got}" if got else r.reason
-            print(f"{mark} {r.category:12} {r.target:30} {r.seconds:6.1f}s  {got}")
+            by_llm = f"  [model closed {', '.join(r.llm_closed)}]" if r.llm_closed else ""
+            print(f"{mark} {r.category:12} {r.target:30} {r.seconds:6.1f}s  {got}{by_llm}")
             if r.error:
                 print(f"       error: {r.error}")
             if r.false_proven:

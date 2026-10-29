@@ -17,8 +17,8 @@ allowed-tools: Bash(apex:*) Bash(uv:*) Read
 
 # Apex verify
 
-> Status: early. The deterministic verbs exist; the MCP server and the full host-mode workflow
-> land in Phase 4. The supported Python subset is in
+> Status: early. The deterministic verbs and engine mode (`apex check`) exist; the MCP server and
+> the full host-mode workflow land in Phase 4. The supported Python subset is in
 > [references/LEAN_SUBSET.md](references/LEAN_SUBSET.md); where properties come from and how to
 > write formal hints is in [references/INTENT.md](references/INTENT.md).
 
@@ -37,6 +37,8 @@ allowed-tools: Bash(apex:*) Bash(uv:*) Read
 5. `apex refute <target>` searches the real Python for counterexamples. A counterexample ends that
    property: fix the code or the intent, never the theorem.
 6. Present Apex's report table verbatim (`apex verify <target> --markdown`), then summarise.
+   `apex suggest <target>` lists the next step for each gap and a regression test per
+   counterexample; `apex explain` words each verdict for the user.
 
 ## Hard rules
 

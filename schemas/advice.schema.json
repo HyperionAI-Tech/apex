@@ -1,0 +1,109 @@
+{
+  "$defs": {
+    "Advice": {
+      "properties": {
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "function": {
+          "title": "Function",
+          "type": "string"
+        },
+        "meaning": {
+          "title": "Meaning",
+          "type": "string"
+        },
+        "property": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Property"
+        },
+        "snippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snippet"
+        },
+        "suggestions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Suggestions",
+          "type": "array"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "function",
+        "target",
+        "verdict",
+        "meaning",
+        "explanation"
+      ],
+      "title": "Advice",
+      "type": "object"
+    },
+    "Verdict": {
+      "enum": [
+        "proven",
+        "proven_unreviewed",
+        "proven_conditional",
+        "refuted",
+        "fidelity_failed",
+        "contradiction",
+        "unproven",
+        "out_of_scope"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/Advice"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "kind": {
+      "enum": [
+        "explain",
+        "suggest"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "title": "AdviceList",
+  "type": "object"
+}

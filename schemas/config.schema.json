@@ -39,6 +39,13 @@
       "title": "Ignore",
       "type": "array"
     },
+    "llm_parallel": {
+      "default": 4,
+      "description": "Theorems whose proofs a model works on at the same time.",
+      "minimum": 1,
+      "title": "Llm Parallel",
+      "type": "integer"
+    },
     "llm_timeout_s": {
       "default": 300,
       "description": "Per LLM call.",
@@ -74,7 +81,7 @@
     },
     "proof_budget_s": {
       "default": 120,
-      "description": "Per theorem.",
+      "description": "Per theorem: Lean time for one compile of its proof.",
       "exclusiveMinimum": 0,
       "title": "Proof Budget S",
       "type": "number"
@@ -88,7 +95,7 @@
     },
     "retries": {
       "default": 4,
-      "description": "Fixer-loop iterations.",
+      "description": "Fixer-loop iterations: model proposals after the first, each fed Lean's errors from the one before.",
       "minimum": 0,
       "title": "Retries",
       "type": "integer"

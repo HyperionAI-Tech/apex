@@ -59,6 +59,15 @@ def _top_level_functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
     return {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
 
 
+def top_level_functions(path: Path) -> list[str]:
+    """Names of the top-level functions defined in a module, in source order."""
+    try:
+        tree = ast.parse(path.read_text(), filename=str(path))
+    except SyntaxError as e:
+        raise TargetError(f"{path}: {e}") from e
+    return list(_top_level_functions(tree))
+
+
 def load_function(target: str) -> FunctionInfo:
     path, qualname = parse_target(target)
     module_source = path.read_text()
