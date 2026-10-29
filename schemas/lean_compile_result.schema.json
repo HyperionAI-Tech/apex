@@ -1,0 +1,248 @@
+{
+  "$defs": {
+    "AxiomAudit": {
+      "properties": {
+        "axioms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Axioms",
+          "type": "array"
+        },
+        "disallowed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Disallowed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "axioms",
+        "disallowed"
+      ],
+      "title": "AxiomAudit",
+      "type": "object"
+    },
+    "GuardFinding": {
+      "properties": {
+        "column": {
+          "title": "Column",
+          "type": "integer"
+        },
+        "line": {
+          "title": "Line",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "token": {
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "line",
+        "column",
+        "reason"
+      ],
+      "title": "GuardFinding",
+      "type": "object"
+    },
+    "LeanMessage": {
+      "properties": {
+        "column": {
+          "title": "Column",
+          "type": "integer"
+        },
+        "end_column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Column"
+        },
+        "end_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Line"
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Goal state, when the message carries one (text after \u22a2 etc.)",
+          "title": "Goal"
+        },
+        "line": {
+          "title": "Line",
+          "type": "integer"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "information"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "line",
+        "column",
+        "message"
+      ],
+      "title": "LeanMessage",
+      "type": "object"
+    },
+    "TheoremCheck": {
+      "properties": {
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AxiomAudit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/TheoremOutcome"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "outcome"
+      ],
+      "title": "TheoremCheck",
+      "type": "object"
+    },
+    "TheoremOutcome": {
+      "enum": [
+        "proved",
+        "failed",
+        "timeout"
+      ],
+      "title": "TheoremOutcome",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "duration_s": {
+      "default": 0.0,
+      "title": "Duration S",
+      "type": "number"
+    },
+    "guard_findings": {
+      "items": {
+        "$ref": "#/$defs/GuardFinding"
+      },
+      "title": "Guard Findings",
+      "type": "array"
+    },
+    "lean_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lean File"
+    },
+    "messages": {
+      "items": {
+        "$ref": "#/$defs/LeanMessage"
+      },
+      "title": "Messages",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_sha256": {
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "error",
+        "timeout",
+        "tool_error"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "theorems": {
+      "items": {
+        "$ref": "#/$defs/TheoremCheck"
+      },
+      "title": "Theorems",
+      "type": "array"
+    },
+    "tool_error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tool Error"
+    }
+  },
+  "required": [
+    "status",
+    "source_sha256"
+  ],
+  "title": "CompileResult",
+  "type": "object"
+}

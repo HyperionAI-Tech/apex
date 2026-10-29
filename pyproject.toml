@@ -1,0 +1,57 @@
+[project]
+# Distribution name is a placeholder: "apex" is likely taken on PyPI (open decision, handoff section 12).
+name = "apex-verify"
+version = "0.1.0.dev0"
+description = "Turn Python intent into Lean 4 theorems and prove them, or explain exactly why not."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+    "pydantic>=2.7",
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+# Warm REPL pool for the fast proof-search loop. Never used on the verdict path.
+repl = ["lean-interact>=0.6"]
+
+[project.scripts]
+apex = "apex.cli.app:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+    "pyyaml>=6",
+    "types-pyyaml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apex"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["src", "tests", "scripts"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "lean: needs the pinned Lean toolchain and Mathlib cache (run `apex init` first)",
+]

@@ -1,0 +1,393 @@
+{
+  "$defs": {
+    "Counterexample": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "found_by": {
+          "enum": [
+            "crosshair",
+            "hypothesis"
+          ],
+          "title": "Found By",
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "inputs",
+        "found_by"
+      ],
+      "title": "Counterexample",
+      "type": "object"
+    },
+    "FunctionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "properties": {
+          "items": {
+            "$ref": "#/$defs/PropertyResult"
+          },
+          "title": "Properties",
+          "type": "array"
+        },
+        "qualname": {
+          "title": "Qualname",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "qualname",
+        "file",
+        "sha256"
+      ],
+      "title": "FunctionResult",
+      "type": "object"
+    },
+    "Gap": {
+      "additionalProperties": false,
+      "properties": {
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "next_steps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Steps",
+          "type": "array"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/ReasonCode"
+        }
+      },
+      "required": [
+        "reason_code",
+        "explanation"
+      ],
+      "title": "Gap",
+      "type": "object"
+    },
+    "ProofArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "axioms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Axioms",
+          "type": "array"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "axioms"
+      ],
+      "title": "ProofArtifact",
+      "type": "object"
+    },
+    "PropertyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "added_preconditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added Preconditions",
+          "type": "array"
+        },
+        "counterexample": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Counterexample"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "gap": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Gap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lean_statement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lean Statement"
+        },
+        "proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProofArtifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "review": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Review"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "id",
+        "verdict"
+      ],
+      "title": "PropertyResult",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Which model proposed each candidate. Recorded for debugging, never for trust.",
+      "properties": {
+        "proof_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proof By"
+        },
+        "statement_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statement By"
+        }
+      },
+      "title": "Provenance",
+      "type": "object"
+    },
+    "ReasonCode": {
+      "enum": [
+        "UNSUPPORTED_CONSTRUCT",
+        "IMPURE_IO",
+        "FLOAT_SEMANTICS",
+        "NONTERMINATION",
+        "BUDGET_EXHAUSTED",
+        "SPEC_AMBIGUOUS",
+        "SPEC_CONFLICT",
+        "NEEDS_CONCURRENCY_TOOL"
+      ],
+      "title": "ReasonCode",
+      "type": "string"
+    },
+    "Review": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved At"
+        },
+        "reviewer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewer"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "pending",
+            "lapsed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Review",
+      "type": "object"
+    },
+    "Verdict": {
+      "enum": [
+        "proven",
+        "proven_unreviewed",
+        "proven_conditional",
+        "refuted",
+        "fidelity_failed",
+        "contradiction",
+        "unproven",
+        "out_of_scope"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "apex_version": {
+      "title": "Apex Version",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "exit_code": {
+      "title": "Exit Code",
+      "type": "integer"
+    },
+    "functions": {
+      "items": {
+        "$ref": "#/$defs/FunctionResult"
+      },
+      "title": "Functions",
+      "type": "array"
+    },
+    "lean_toolchain": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lean Toolchain"
+    },
+    "mathlib_rev": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mathlib Rev"
+    },
+    "mode": {
+      "enum": [
+        "engine",
+        "host"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "apex_version",
+    "mode",
+    "exit_code"
+  ],
+  "title": "Report",
+  "type": "object"
+}

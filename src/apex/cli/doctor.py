@@ -1,0 +1,191 @@
+"""`apex doctor`: a JSON-able health report of everything the pipeline depends on."""
+
+import importlib.util
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel
+
+from apex import __version__
+from apex.lean.project import LeanProject, LeanUnavailable, find_elan, find_lake
+
+Status = Literal["ok", "warn", "fail"]
+
+
+class Check(BaseModel):
+    name: str
+    status: Status
+    detail: str
+
+
+class DoctorReport(BaseModel):
+    schema_version: Literal["1"] = "1"
+    apex_version: str
+    healthy: bool
+    """True when nothing failed. Warnings do not block the deterministic verbs."""
+    checks: list[Check]
+
+
+def _cmd_version(cmd: list[str], cwd: Path | None = None) -> str | None:
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=60, cwd=cwd)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return (out.stdout or out.stderr).strip().splitlines()[0] if out.returncode == 0 else None
+
+
+def _skill_locations(cwd: Path) -> list[str]:
+    dirs = [
+        ".agents/skills",
+        ".claude/skills",
+        ".gemini/skills",
+        ".cursor/skills",
+        ".github/skills",
+    ]
+    found = []
+    for base in (cwd, Path.home()):
+        for d in dirs:
+            if (base / d / "apex-verify" / "SKILL.md").is_file():
+                found.append(str(base / d / "apex-verify"))
+    return found
+
+
+def run_doctor(cwd: Path | None = None, *, warm_repl: bool = False) -> DoctorReport:
+    cwd = cwd or Path.cwd()
+    checks: list[Check] = []
+
+    py_ok = sys.version_info >= (3, 12)
+    checks.append(
+        Check(name="python", status="ok" if py_ok else "fail", detail=sys.version.split()[0])
+    )
+
+    elan = find_elan()
+    checks.append(
+        Check(
+            name="elan",
+            status="ok" if elan else "fail",
+            detail=str(elan) if elan else "not found; run `apex init`",
+        )
+    )
+    lake = find_lake()
+    checks.append(
+        Check(
+            name="lake",
+            status="ok" if lake else "fail",
+            detail=str(lake) if lake else "not found; run `apex init`",
+        )
+    )
+
+    try:
+        project: LeanProject | None = LeanProject.locate()
+        checks.append(Check(name="lean_project", status="ok", detail=str(project.root)))
+    except LeanUnavailable as e:
+        project = None
+        checks.append(Check(name="lean_project", status="fail", detail=str(e)))
+
+    if project is not None:
+        pinned = project.toolchain
+        # The same lean binary and environment the verdict compiler uses, so this checks what
+        # verdicts actually run on (and elan resolves the pinned toolchain, not the global one).
+        try:
+            lean, _ = project.lean_command()
+            installed = _cmd_version([str(lean), "--version"], project.root)
+        except LeanUnavailable:
+            installed = None
+        tag = pinned.split(":")[-1].lstrip("v")
+        lean_ok = installed is not None and tag in installed
+        checks.append(
+            Check(
+                name="lean_toolchain",
+                status="ok" if lean_ok else "fail",
+                detail=f"pinned {pinned}; found {installed or 'none'}",
+            )
+        )
+        rev = project.mathlib_rev
+        checks.append(
+            Check(
+                name="mathlib",
+                status="ok" if rev and project.mathlib_dir.is_dir() else "fail",
+                detail=f"rev {rev}" if rev else "not resolved; run `apex init`",
+            )
+        )
+        checks.append(
+            Check(
+                name="mathlib_cache",
+                status="ok" if project.mathlib_cache_present else "fail",
+                detail="present"
+                if project.mathlib_cache_present
+                else "missing; run `apex init` (fetches prebuilt oleans with `lake exe cache get`)",
+            )
+        )
+        checks.append(
+            Check(
+                name="apex_prelude",
+                status="ok" if project.prelude_built else "warn",
+                detail="built"
+                if project.prelude_built
+                else "not built; `apex init` runs `lake build`",
+            )
+        )
+
+    pyright = shutil.which("pyright")
+    checks.append(
+        Check(
+            name="pyright",
+            status="ok" if pyright else "warn",
+            detail=pyright or "not found; type facts will be unavailable to analyze",
+        )
+    )
+
+    for mod, purpose in [
+        ("lean_interact", "warm REPL pool"),
+        ("hypothesis", "fidelity bridge"),
+        ("crosshair", "refutation"),
+    ]:
+        present = importlib.util.find_spec(mod) is not None
+        checks.append(
+            Check(
+                name=mod,
+                status="ok" if present else "warn",
+                detail=("installed" if present else "not installed") + f" ({purpose})",
+            )
+        )
+
+    skills = _skill_locations(cwd)
+    checks.append(
+        Check(
+            name="skill",
+            status="ok" if skills else "warn",
+            detail=", ".join(skills)
+            if skills
+            else "apex-verify not installed in any harness (`apex skill install`)",
+        )
+    )
+
+    if warm_repl and project is not None and project.prelude_built:
+        checks.append(_repl_warmup(project))
+
+    return DoctorReport(
+        apex_version=__version__, healthy=all(c.status != "fail" for c in checks), checks=checks
+    )
+
+
+def _repl_warmup(project: LeanProject) -> Check:
+    try:
+        from apex.lean.repl import ReplPool
+
+        pool = ReplPool(size=1, project=project)
+        try:
+            res = pool.check("example : 1 + 1 = 2 := by decide")
+        finally:
+            pool.close()
+        return Check(
+            name="repl_warmup",
+            status="ok" if res.ok else "fail",
+            detail=f"warm-up {pool.warmup_s[0]:.1f}s, query {res.duration_s:.2f}s",
+        )
+    except Exception as e:  # report, never crash the doctor
+        return Check(name="repl_warmup", status="warn", detail=f"{type(e).__name__}: {e}")

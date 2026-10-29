@@ -1,0 +1,11 @@
+name = "apex_lean"
+defaultTargets = ["Apex"]
+
+# Mathlib is pinned to one release; upgrades are deliberate PRs re-run against the eval corpus.
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.35.0"
+
+[[lean_lib]]
+name = "Apex"

@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "Verdict": {
+      "enum": [
+        "proven",
+        "proven_unreviewed",
+        "proven_conditional",
+        "refuted",
+        "fidelity_failed",
+        "contradiction",
+        "unproven",
+        "out_of_scope"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "confidence_floor": {
+      "default": 0.6,
+      "description": "Below this, a property is flagged SPEC_AMBIGUOUS.",
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence Floor",
+      "type": "number"
+    },
+    "fail_on": {
+      "items": {
+        "$ref": "#/$defs/Verdict"
+      },
+      "title": "Fail On",
+      "type": "array"
+    },
+    "ignore": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Ignore",
+      "type": "array"
+    },
+    "model_provider": {
+      "default": "none",
+      "enum": [
+        "anthropic",
+        "openai",
+        "host",
+        "none"
+      ],
+      "title": "Model Provider",
+      "type": "string"
+    },
+    "proof_budget_s": {
+      "default": 120,
+      "description": "Per theorem.",
+      "exclusiveMinimum": 0,
+      "title": "Proof Budget S",
+      "type": "number"
+    },
+    "retries": {
+      "default": 4,
+      "description": "Fixer-loop iterations.",
+      "minimum": 0,
+      "title": "Retries",
+      "type": "integer"
+    },
+    "review_store": {
+      "default": ".apex/reviews.json",
+      "title": "Review Store",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "ApexConfig",
+  "type": "object"
+}

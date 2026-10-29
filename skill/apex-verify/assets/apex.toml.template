@@ -1,0 +1,9 @@
+[apex]
+schema_version = "1"
+model_provider = "host"            # inside a coding harness, the agent does the model work
+proof_budget_s = 120               # per theorem
+retries = 4                        # fixer-loop iterations
+confidence_floor = 0.6             # below this, a property is flagged SPEC_AMBIGUOUS
+fail_on = ["refuted", "fidelity_failed", "contradiction"]
+review_store = ".apex/reviews.json"
+ignore = ["tests/**", "migrations/**"]
