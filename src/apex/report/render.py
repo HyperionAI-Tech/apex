@@ -1,11 +1,14 @@
 """Report renderers. Every renderer shows Apex's verdict enum verbatim; none may soften it."""
 
+from pathlib import Path
+
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
 from apex.core.report import PropertyResult, Report, function_verdict
 from apex.core.verdict import Verdict
+from apex.report.explain import target_of
 
 STYLE = {
     Verdict.PROVEN: "bold green",
@@ -19,8 +22,8 @@ STYLE = {
 }
 
 
-def detail(p: PropertyResult) -> str:
-    """The one actionable line per property."""
+def detail(p: PropertyResult, target: str = "<target>") -> str:
+    """The one actionable line per property; `target` makes its command copy-pasteable."""
     match p.verdict:
         case Verdict.PROVEN:
             reviewer = p.review.reviewer if p.review else "?"
@@ -28,7 +31,7 @@ def detail(p: PropertyResult) -> str:
             return f"approved by {reviewer}; axioms: {axioms}"
         case Verdict.PROVEN_UNREVIEWED:
             status = p.review.status if p.review else "pending"
-            return f"statement {status}: run `apex review --approve {p.id}` in a terminal"
+            return f"statement {status}: run `apex review {target} --approve {p.id}` in a terminal"
         case Verdict.PROVEN_CONDITIONAL:
             return "under added precondition(s): " + "; ".join(p.added_preconditions)
         case Verdict.REFUTED | Verdict.FIDELITY_FAILED if p.counterexample:
@@ -54,8 +57,9 @@ def print_report(report: Report, console: Console | None = None) -> None:
                 escape(f"{f.gap.reason_code}: {f.gap.explanation}"),
             )
         for p in f.properties:
+            target = target_of(f, Path.cwd())
             table.add_row(
-                f.qualname, p.id, f"[{STYLE[p.verdict]}]{p.verdict}[/]", escape(detail(p))
+                f.qualname, p.id, f"[{STYLE[p.verdict]}]{p.verdict}[/]", escape(detail(p, target))
             )
     console.print(table)
     for f in report.functions:
@@ -77,5 +81,6 @@ def to_markdown(report: Report) -> str:
             gap = f"{f.gap.reason_code}: {f.gap.explanation}"
             lines.append(f"| `{f.qualname}` | - | `{whole}` | {esc(gap)} |")
         for p in f.properties:
-            lines.append(f"| `{f.qualname}` | {p.id} | `{p.verdict}` | {esc(detail(p))} |")
+            d = detail(p, target_of(f, Path.cwd()))
+            lines.append(f"| `{f.qualname}` | {p.id} | `{p.verdict}` | {esc(d)} |")
     return "\n".join(lines) + "\n"

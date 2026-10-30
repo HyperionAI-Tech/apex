@@ -21,6 +21,7 @@ jobs:
       - name: Published JSON Schemas match the contracts
         run: |
           uv run apex schema --out schemas
+          git add --intent-to-add schemas   # a new contract with no committed schema is drift too
           git diff --exit-code schemas
 
   install:

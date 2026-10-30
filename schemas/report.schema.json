@@ -84,6 +84,11 @@
             }
           ],
           "default": null
+        },
+        "skipped": {
+          "default": 0,
+          "title": "Skipped",
+          "type": "integer"
         }
       },
       "required": [
@@ -205,6 +210,48 @@
       "title": "Gap",
       "type": "object"
     },
+    "LeanError": {
+      "additionalProperties": false,
+      "description": "One Lean error on a rejected proof, positioned in the file the author edits.",
+      "properties": {
+        "column": {
+          "title": "Column",
+          "type": "integer"
+        },
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Goal"
+        },
+        "line": {
+          "title": "Line",
+          "type": "integer"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "line",
+        "column",
+        "message"
+      ],
+      "title": "LeanError",
+      "type": "object"
+    },
     "ProofArtifact": {
       "additionalProperties": false,
       "properties": {
@@ -267,6 +314,13 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "lean_errors": {
+          "items": {
+            "$ref": "#/$defs/LeanError"
+          },
+          "title": "Lean Errors",
+          "type": "array"
         },
         "lean_statement": {
           "anyOf": [

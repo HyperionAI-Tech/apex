@@ -183,9 +183,8 @@ def fast_check(ctx: ProofContext, decl: SpecDecl, cand: Candidate) -> list[str]:
     assert target is not None
     lemmas = [d for d in new_spec.helpers if d.name not in {h.name for h in ctx.spec.helpers}]
     extra = "".join(f"import {m}\n" for m in new_spec.imports if m not in ctx.spec.imports)
-    head = (
-        f"{extra}{ctx.header}\nnamespace {ctx.namespace}\n\n{ctx.model}\n"
-        + "".join(h.text + "\n" for h in ctx.spec.helpers)
+    head = f"{extra}{ctx.header}\nnamespace {ctx.namespace}\n\n{ctx.model}\n" + "".join(
+        h.text + "\n" for h in ctx.spec.helpers
     )
     first_line = head.count("\n") + 1
     body = "".join(d.text + "\n" for d in lemmas) + target.text
@@ -235,9 +234,7 @@ def build_prompt(ctx: ProofContext, decl: SpecDecl, attempts: list[Attempt]) -> 
             shown = f"lemmas:\n{c.lemmas.strip()}\n{shown}"
         if c.imports:
             shown = f"imports: {', '.join(c.imports)}\n{shown}"
-        parts.append(
-            f"Attempt {k} was rejected.\n{shown}\nLean said:\n" + "\n".join(a.errors)
-        )
+        parts.append(f"Attempt {k} was rejected.\n{shown}\nLean said:\n" + "\n".join(a.errors))
     return "\n\n".join(parts)
 
 

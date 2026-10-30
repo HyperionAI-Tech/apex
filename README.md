@@ -5,12 +5,16 @@ docstring, tests, or just the source), turns that intent into Lean 4 theorems, a
 them. You get either a machine-checked proof or a gap report that says what could not be proven,
 why, and what would have to change.
 
-**Status: Phase 4 (MCP server + Agent Skill).** `apex mcp` serves the deterministic verbs as
-typed tools; `apex skill install` puts the apex-verify skill and MCP config where each coding
-harness looks. Smoke matrix: Claude Code (MCP channel) and Codex (CLI channel) each auto-activate
-the skill from a natural request, reach `proven_unreviewed` on clamp, `refuted` with a
-counterexample on the planted off-by-one, and close the loop (read the counterexample, fix the
-code, re-verify) with nothing refuted. Phase 3 (`apex check`, model proofs, SARIF) is underneath.
+**New here? Start with the [quickstart](docs/QUICKSTART.md), and read
+[what Apex cannot prove](docs/LIMITS.md) before trusting a verdict.**
+
+**Status: Phase 5 (hardening).** The eval corpus has grown to the handoff's composition: 121
+cases, including ten functions written by Claude Code and Codex from one-line prompts and left
+unedited. False `proven` is 0 on the full corpus; 110/121 cases match expectations so far, and
+the other 11 are being worked through (they surfaced real bugs). Hardening fixes so far: a call into user code
+that runs too long (a loop over `range(2**40)`) or hits Python's recursion limit is now skipped,
+with a note, instead of hanging or crashing the run. Phase 4 (MCP server and Agent Skill) and
+Phase 3 (`apex check`, model proofs, SARIF) are underneath.
 
 ## Quick tour
 
@@ -268,7 +272,9 @@ src/apex/pipeline.py the deterministic verbs every surface calls, and `check` (e
 src/apex/cli/        Typer app
 src/apex/mcp/        MCP server (stdio): the deterministic verbs as typed tools
 src/apex/skill/      `apex skill install` / `apex mcp install`; packaging generator
-evals/               corpus (known-good, planted bugs, conflicts, out of scope) + runner
+evals/               corpus (known-good, planted bugs, conflicts, out of scope,
+                     AI-generated) + runner
+docs/                quickstart, what Apex cannot prove
 lean/              pinned Lake project (Lean v4.35.0, Mathlib v4.35.0)
 skill/apex-verify/ canonical Agent Skill (validated against the spec in CI)
 packaging/         generated Claude Code plugin and Gemini CLI extension

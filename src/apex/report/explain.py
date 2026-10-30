@@ -79,9 +79,7 @@ def _narrative(f: FunctionResult, p: PropertyResult) -> str:
     return f"{name}({args}) {c.actual}, which breaks `{c.expected}` (found by {c.found_by})."
 
 
-def regression_test(
-    f: FunctionResult, p: PropertyResult, params: list[str] | None
-) -> str | None:
+def regression_test(f: FunctionResult, p: PropertyResult, params: list[str] | None) -> str | None:
     """A pytest test that fails exactly while the counterexample still breaks the property."""
     c = p.counterexample
     if c is None or p.verdict is not Verdict.REFUTED:
@@ -100,8 +98,10 @@ def regression_test(
         except HintError:
             return None
         parts = [*(f"not ({ast.unparse(e)})" for e in hint.premises), ast.unparse(hint.conclusion)]
-        check = "assert " + " or ".join(f"({x})" for x in parts) if hint.premises else (
-            f"assert {ast.unparse(hint.conclusion)}"
+        check = (
+            "assert " + " or ".join(f"({x})" for x in parts)
+            if hint.premises
+            else (f"assert {ast.unparse(hint.conclusion)}")
         )
         imports |= _called_names(c.expected or "") - BUILTINS
     lines = [

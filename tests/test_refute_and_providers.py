@@ -4,6 +4,7 @@ import json
 import os
 import stat
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 from apex.analyze.purity import classify
 from apex.analyze.target import load_function
 from apex.core.config import ApexConfig
+from apex.fidelity.bridge import CallTimeout, call_user
 from apex.fidelity.refute import refute
 from apex.intent.docstring import mine_docstring
 from apex.intent.fuse import fuse
@@ -106,6 +108,53 @@ def test_exception_inside_the_precondition_refutes(tmp_path: Path) -> None:
     )
     cx = res["P1"].counterexample
     assert cx is not None and "ZeroDivisionError" in (cx.actual or "")
+
+
+def test_recursion_limit_is_skipped_not_refuted_and_never_crashes(tmp_path: Path) -> None:
+    # Whether fact(~1000) overflows depends on how deep in the stack Hypothesis calls it, which
+    # used to surface as a FlakyFailure that crashed the run.
+    src = '''
+        def fact(n: int) -> int:
+            """post: __return__ >= 1"""
+            if n <= 0:
+                return 1
+            return n * fact(n - 1)
+        '''
+    first = _refute(tmp_path, src, "fact", budget_s=1)["P1"]
+    assert not first.refuted and "recursion limit" in (first.note or "")
+    assert _refute(tmp_path, src, "fact", budget_s=1)["P1"] == first
+
+
+def test_slow_calls_are_skipped_and_the_search_stops(tmp_path: Path) -> None:
+    started = time.monotonic()
+    res = _refute(
+        tmp_path,
+        """
+        def fact(n: int) -> int:
+            \"\"\"post: __return__ >= 1\"\"\"
+            r = 1
+            for i in range(1, n + 1):
+                r *= i
+            return r
+        """,
+        "fact",
+        budget_s=1,
+    )
+    assert not res["P1"].refuted and "ran past" in (res["P1"].note or "")
+    assert time.monotonic() - started < 30  # used to loop on n near 2**40 forever
+
+
+def test_user_code_cannot_swallow_the_timeout() -> None:
+    def stubborn() -> int:
+        while True:
+            try:
+                while True:
+                    pass
+            except Exception:
+                continue
+
+    with pytest.raises(CallTimeout):
+        call_user(stubborn, (), timeout_s=0.2)
 
 
 # ---- providers -------------------------------------------------------------------------------

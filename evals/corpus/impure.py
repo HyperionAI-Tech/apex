@@ -32,3 +32,27 @@ def roll(n: int) -> int:
 def spawn(n: int) -> int:
     threading.Thread(target=print).start()
     return n
+
+
+def read_limit(path: str) -> int:
+    with open(path) as f:
+        return int(f.read())
+
+
+def to_celsius(f: float) -> float:
+    return (f - 32) * 5 / 9
+
+
+def greet(name: str) -> str:
+    return "hello " + name
+
+
+def push(xs: list[int], x: int) -> list[int]:
+    xs.append(x)
+    return xs
+
+
+def stamp(x: int) -> int:
+    import time
+
+    return x + int(time.time())

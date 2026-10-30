@@ -1,0 +1,27 @@
+{
+  "properties": {
+    "refused": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Refused",
+      "type": "array"
+    },
+    "unchanged": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unchanged",
+      "type": "array"
+    },
+    "written": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Written",
+      "type": "array"
+    }
+  },
+  "title": "SkillInstallResult",
+  "type": "object"
+}

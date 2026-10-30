@@ -7,12 +7,18 @@ discards the proof as `fidelity_failed`. This is conservative on purpose:
 - a Python exception where the Lean model returns a value is a disagreement (the model is total,
   the Python is not, so theorems about the model can overclaim);
 - a Python function that mutates its arguments disagrees (the model has no side effects).
+
+Running out of resources is not a disagreement: an input on which the Python hits its recursion
+limit (Lean's model has no call stack) or runs past CALL_TIMEOUT_S is left out and counted in
+`skipped`. Inputs run smallest first, and after MAX_SLOW slow calls the larger rest are skipped
+too; the check fails if nothing is left to compare.
 """
 
 import ast
 import copy
 import importlib.util
 import sys
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,6 +39,38 @@ from apex.translate.literals import normalize, to_lean
 DEFAULT_EXAMPLES = 200
 _CHUNK = 50
 _MARK = "APEX-FIDELITY"
+RECURSION_LIMIT = "RecursionError"
+TIMED_OUT = "timed out"
+CALL_TIMEOUT_S = 0.5
+"""Wall-clock budget for one call into user code (a loop over range(n) with n near 2**40 would
+otherwise never return)."""
+MAX_SLOW = 3
+"""Slow calls after which a search stops calling the function."""
+RESOURCE_LIMITS = (RECURSION_LIMIT, TIMED_OUT)
+
+
+class CallTimeout(BaseException):
+    """Raised inside user code when its budget runs out. A BaseException, so a bare
+    `except Exception` in the user's code cannot swallow it."""
+
+
+def call_user(fn: Any, args: tuple[Any, ...], timeout_s: float = CALL_TIMEOUT_S) -> Any:
+    """`fn(*args)`, interrupted with CallTimeout after `timeout_s`. Uses a trace function, not a
+    signal, so it works off the main thread too (the MCP server runs tools in threads). A single
+    long-running C call (a huge bignum product) is only interrupted when it returns."""
+    deadline = time.monotonic() + timeout_s
+
+    def tracer(frame: Any, event: str, arg: Any) -> Any:
+        if time.monotonic() > deadline:
+            raise CallTimeout
+        return tracer
+
+    previous = sys.gettrace()
+    sys.settrace(tracer)
+    try:
+        return fn(*args)
+    finally:
+        sys.settrace(previous)
 
 
 SUPPRESSED_HEALTH_CHECKS = [
@@ -118,12 +156,33 @@ class _PyOutcome:
 def _run_python(fn: Any, args: tuple[Any, ...]) -> _PyOutcome:
     call_args = copy.deepcopy(args)
     try:
-        value = fn(*call_args)
+        value = call_user(fn, call_args)
+    except CallTimeout:
+        return _PyOutcome(error=TIMED_OUT)
     except RecursionError:
-        return _PyOutcome(error="RecursionError")
+        return _PyOutcome(error=RECURSION_LIMIT)
     except Exception as e:
         return _PyOutcome(error=f"{type(e).__name__}: {e}")
     return _PyOutcome(value=value, mutated=call_args != args)
+
+
+def _run_smallest_first(
+    fn: Any, inputs: list[tuple[Any, ...]]
+) -> tuple[list[tuple[Any, ...]], list[_PyOutcome]]:
+    """Run the Python on each input, smallest first; keep those that did not hit a resource limit.
+    After MAX_SLOW timeouts the remaining (larger) inputs are not run at all."""
+    kept: list[tuple[Any, ...]] = []
+    outcomes: list[_PyOutcome] = []
+    slow = 0
+    for args in sorted(inputs, key=lambda a: len(repr(a))):
+        if slow >= MAX_SLOW:
+            break
+        out = _run_python(fn, args)
+        slow += out.error == TIMED_OUT
+        if out.error not in RESOURCE_LIMITS:
+            kept.append(args)
+            outcomes.append(out)
+    return kept, outcomes
 
 
 def build_eval_file(model: LeanModel, inputs: list[tuple[Any, ...]]) -> str:
@@ -193,7 +252,14 @@ def check_fidelity(
     inputs = generate_inputs([t for _, t in sig.params], n, accept if pres else None)
     if not inputs:
         raise FidelityError("no generated input satisfies the function's leading asserts")
-    py = [_run_python(fn, args) for args in inputs]
+    generated = len(inputs)
+    inputs, py = _run_smallest_first(fn, inputs)
+    if not inputs:
+        raise FidelityError(
+            "the Python exceeded its recursion limit or ran past "
+            f"{CALL_TIMEOUT_S}s on every generated input"
+        )
+    skipped = generated - len(inputs)
     lean = run_lean_model(model, inputs, project, timeout_s)
 
     mismatches: list[Counterexample] = []
@@ -217,9 +283,11 @@ def check_fidelity(
         )
     domain = " and ".join(ast.unparse(c) for c in pres) or None
     if not mismatches:
-        return FidelitySummary(agree=True, inputs_checked=len(inputs), domain=domain)
+        return FidelitySummary(
+            agree=True, inputs_checked=len(inputs), domain=domain, skipped=skipped
+        )
     # No cross-language shrinking yet: report the smallest disagreement we saw.
     smallest = min(mismatches, key=lambda c: len(repr(c.inputs)))
     return FidelitySummary(
-        agree=False, inputs_checked=len(inputs), mismatch=smallest, domain=domain
+        agree=False, inputs_checked=len(inputs), mismatch=smallest, domain=domain, skipped=skipped
     )

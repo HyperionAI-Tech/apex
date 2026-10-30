@@ -100,7 +100,7 @@ def to_sarif(report: Report, root: Path) -> dict[str, Any]:
         for p in f.properties:
             seen.add(p.verdict)
             text = f"{f.qualname} {p.id}: {p.verdict.value}"
-            if d := detail(p):
+            if d := detail(p, target_of(f, root)):
                 text += f": {d}"
             results.append(_result(f, p.verdict, p.id, text, _props(p), root))
     rules = [_rule(v) for v in Verdict if v in seen]

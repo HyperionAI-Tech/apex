@@ -82,9 +82,7 @@ def test_missing_lean_is_a_tool_error_for_every_lean_verb(work: Path, tmp_path: 
     fake.mkdir()
     (fake / "lakefile.toml").write_text('name = "x"\n')
     (fake / "lean-toolchain").write_text("leanprover/lean4:v4.35.0\n")
-    (fake / "lake-manifest.json").write_text(
-        '{"packages": [{"name": "mathlib", "rev": "abc"}]}\n'
-    )
+    (fake / "lake-manifest.json").write_text('{"packages": [{"name": "mathlib", "rev": "abc"}]}\n')
     env = {"APEX_LEAN_PROJECT": str(fake)}
     for args in (
         ["verify", "mathx.py::clamp"],

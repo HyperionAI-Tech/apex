@@ -526,9 +526,7 @@ def intent_submit(
     except ValidationError as e:
         _fail(as_json, f"not a valid ProposalSet: {e}")
     with _tool_errors(as_json):
-        check = pipeline.submit_proposals(
-            target, _workspace(as_json), proposals, replace=replace
-        )
+        check = pipeline.submit_proposals(target, _workspace(as_json), proposals, replace=replace)
     _emit_check(check, as_json)
 
 

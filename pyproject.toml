@@ -71,6 +71,10 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 # Apex generates Lean, whose notation is Unicode (×, ∧, ≤, ⊢): not confusables here.
 ignore = ["RUF001", "RUF002", "RUF003"]
 
+[tool.ruff.lint.per-file-ignores]
+# Corpus code is written the way the translator's subset needs (`[x] + out`, not `[x, *out]`).
+"evals/corpus/*" = ["RUF005"]
+
 [tool.pyright]
 include = ["src", "tests", "scripts", "evals"]
 pythonVersion = "3.12"

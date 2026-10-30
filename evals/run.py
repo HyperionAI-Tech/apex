@@ -60,6 +60,16 @@ _HOLDS = {"proven", "proven_unreviewed", "unproven"}
 """`holds`: the statement is true of this code. Proving it is right; failing to is a closure gap."""
 _MAY_PROVE = {"proven", "proven_unreviewed", "holds"}
 SOURCE_KINDS = {"spec": "english", "docstring": "docstring", "test": "tests", "source": "source"}
+STRICT = ("planted_bug", "conflict", "ai_generated")
+"""Categories where anything proven must be expected proven (or holds)."""
+CORPUS_TARGET = {
+    "known_good": 50,
+    "planted_bug": 30,
+    "conflict": 15,
+    "out_of_scope": 15,
+    "ai_generated": 10,
+}
+"""The handoff's composition (~120 functions), for the scoreboard's corpus line."""
 
 
 @dataclass
@@ -90,8 +100,8 @@ class CaseResult:
     def false_proven(self) -> list[str]:
         """Proven although the corpus says it must not be: the one number that must stay 0.
 
-        On planted-bug and conflict entries anything proven must be expected `proven` (or
-        `holds`: true of this code, whether or not the tactics close it).
+        On planted-bug, conflict and AI-generated entries anything proven must be expected
+        `proven` (or `holds`: true of this code, whether or not the tactics close it).
         """
         out = []
         for pid, got in self.verdicts.items():
@@ -99,7 +109,7 @@ class CaseResult:
                 continue
             want = self.expected.get(pid)
             if want in ("refuted", "contradiction", "unproven") or (
-                self.category in ("planted_bug", "conflict") and want not in _MAY_PROVE
+                self.category in STRICT and want not in _MAY_PROVE
             ):
                 out.append(pid)
         return out
@@ -118,7 +128,7 @@ class CaseResult:
     def ok(self) -> bool:
         if self.error or self.false_proven or self.missing_inputs:
             return False
-        if self.category == "out_of_scope" and self.reason != self.expected_reason:
+        if self.expected_reason is not None and self.reason != self.expected_reason:
             return False
         return all(self.matches(p) for p in self.expected)
 
@@ -219,12 +229,13 @@ def run_case(
     return res
 
 
-def scoreboard(results: list[CaseResult]) -> dict:
+def scoreboard(results: list[CaseResult], *, full: bool = False) -> dict:
+    """`full`: every case in cases.toml ran (the M5 gate is about the full corpus)."""
     by_cat: dict[str, list[CaseResult]] = {}
     for r in results:
         by_cat.setdefault(r.category, []).append(r)
-    good, bugs = by_cat.get("known_good", []), by_cat.get("planted_bug", [])
-    conflicts, oos = by_cat.get("conflict", []), by_cat.get("out_of_scope", [])
+    good, conflicts = by_cat.get("known_good", []), by_cat.get("conflict", [])
+    oos = by_cat.get("out_of_scope", [])
 
     # Closure is over statements that are true and checkable: text-only items are excluded.
     good_props = [(r, p) for r in good for p, v in r.expected.items() if v in ("proven", "holds")]
@@ -237,7 +248,7 @@ def scoreboard(results: list[CaseResult]) -> dict:
     covered = sum(len(set(r.equivalent.values())) for r in good)
     n_refs = sum(len(r.references) for r in good if r.drafted)
 
-    want_ref = [(r, p) for r in [*bugs, *oos] for p, v in r.expected.items() if v == "refuted"]
+    want_ref = [(r, p) for r in results for p, v in r.expected.items() if v == "refuted"]
     refuted = [(r, p) for r, p in want_ref if r.verdicts.get(p) == Verdict.REFUTED]
     want_con = [(r, p) for r in conflicts for p, v in r.expected.items() if v == "contradiction"]
     contra = [(r, p) for r, p in want_con if r.verdicts.get(p) == Verdict.CONTRADICTION]
@@ -249,9 +260,13 @@ def scoreboard(results: list[CaseResult]) -> dict:
         if r.ok and r.expected and all(r.verdicts.get(p) == Verdict.PROVEN for p in r.expected)
     ]
     false_proven = sum(len(r.false_proven) for r in results)
+    ai = by_cat.get("ai_generated", [])
     return {
         "false_proven": false_proven,
         "cases_ok": f"{sum(r.ok for r in results)}/{len(results)}",
+        "corpus": ", ".join(
+            f"{cat} {len(by_cat.get(cat, []))}/{n}" for cat, n in CORPUS_TARGET.items()
+        ),
         "statement_fidelity": f"{len(equiv)}/{len(drafted)} drafted statements shown "
         "equivalent to a reference",
         "reference_coverage": f"{covered}/{n_refs} references matched by a drafted statement",
@@ -269,10 +284,12 @@ def scoreboard(results: list[CaseResult]) -> dict:
         if results
         else 0,
         "known_good_fully_proven": f"{len(fully_proven)}/{len(good)}",
+        "ai_generated_in_subset": f"{sum(r.reason is None for r in ai)}/{len(ai)}",
         "m1_gate": len(fully_proven) >= 5 and false_proven == 0,
         "m2_gate": false_proven == 0
         and len(contra) == len(want_con) > 0
         and all(produced[k] > 0 for k in ("english", "tests", "source", "docstring")),
+        "m5_gate": full and false_proven == 0 and all(r.ok for r in results),
     }
 
 
@@ -288,6 +305,7 @@ def main() -> int:
     args = parser.parse_args()
 
     cases = tomllib.loads((ROOT / "cases.toml").read_text())["case"]
+    full = not args.case
     if args.case:
         cases = [c for c in cases if args.case in c["target"]]
     project = LeanProject.locate()
@@ -322,7 +340,7 @@ def main() -> int:
                     print(f"       {p}: expected {want}, got {r.verdicts.get(p)}")
             for p, cx in r.counterexamples.items():
                 print(f"       {p} counterexample: {cx}")
-    board = scoreboard(results)
+    board = scoreboard(results, full=full)
     if args.json:
         print(json.dumps({"scoreboard": board, "cases": [asdict(r) for r in results]}, indent=2))
     else:

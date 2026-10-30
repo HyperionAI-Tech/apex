@@ -160,7 +160,10 @@ def test_fixer_feeds_lean_errors_back_until_a_proof_passes() -> None:
 def test_fixer_stops_on_provider_error_and_at_the_attempt_budget() -> None:
     _, decl = _p1()
     stopped = search_proof(
-        ScriptedProvider([ProviderError("not logged in")]), _ctx(), decl, attempts=3,
+        ScriptedProvider([ProviderError("not logged in")]),
+        _ctx(),
+        decl,
+        attempts=3,
         check=lambda *_: [],
     )
     assert stopped.closed is None and "not logged in" in (stopped.last_error or "")
@@ -229,7 +232,9 @@ def _report(tmp_path: Path) -> Report:
         id="E1",
         verdict=Verdict.REFUTED,
         counterexample=Counterexample(
-            inputs={"x": "5", "lo": "0", "hi": "3"}, expected="3", actual="returns 2",
+            inputs={"x": "5", "lo": "0", "hi": "3"},
+            expected="3",
+            actual="returns 2",
             found_by="example",
         ),
     )

@@ -12,7 +12,11 @@ it: a counterexample is only ever an input on which this process watched the rea
 the property. That is why `refuted` may come from outside Lean, and why it can never mean `proven`.
 
 The domain is total correctness on the preconditions: an exception raised for an input that
-satisfies every precondition and premise counts as breaking the property.
+satisfies every precondition and premise counts as breaking the property. The one exception is
+running out of resources. An input on which the Python hits its recursion limit (stack depth,
+which Lean does not model either) or runs past the per-call time budget is skipped with a note,
+never reported: Apex cannot tell slow from non-terminating, and a counterexample must be an input
+it watched break the property. After a few slow calls a search stops calling the function.
 """
 
 import ast
@@ -30,7 +34,7 @@ from typing import Any, Literal
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from hypothesis.errors import Unsatisfiable
+from hypothesis.errors import Flaky, Unsatisfiable
 from pydantic import BaseModel, Field
 
 from apex.analyze.target import FunctionInfo
@@ -38,8 +42,14 @@ from apex.analyze.types import PyType
 from apex.core.intent import IntentModel
 from apex.core.report import Counterexample
 from apex.fidelity.bridge import (
+    CALL_TIMEOUT_S,
+    MAX_SLOW,
+    RECURSION_LIMIT,
     SUPPRESSED_HEALTH_CHECKS,
+    TIMED_OUT,
+    CallTimeout,
     FidelityError,
+    call_user,
     load_module,
     strategy_for,
 )
@@ -82,13 +92,16 @@ class _Check:
     searched: list[str] = field(default_factory=list)
     found: Counterexample | None = None
     note: str | None = None
+    slow: int = 0
 
 
 def _call(fn: Any, args: tuple[Any, ...]) -> tuple[Any, str | None]:
     try:
-        return fn(*copy.deepcopy(args)), None
+        return call_user(fn, copy.deepcopy(args)), None
+    except CallTimeout:
+        return None, TIMED_OUT
     except RecursionError:
-        return None, "RecursionError"
+        return None, RECURSION_LIMIT
     except Exception as e:
         return None, f"{type(e).__name__}: {e}"
 
@@ -103,6 +116,8 @@ def _violation(
 ) -> Counterexample | None:
     """Replay `args` on the real function: a counterexample if (and only if) it breaks `c`."""
     env = dict(zip(names, args, strict=True))
+    if c.slow >= MAX_SLOW:
+        return None
     try:
         if not all(evaluate(p, env, ns) for p in c.pres):
             return None
@@ -112,6 +127,10 @@ def _violation(
         return None
     value, error = _call(fn, args)
     inputs = {k: repr(v) for k, v in env.items()}
+    if error in (RECURSION_LIMIT, TIMED_OUT):
+        c.slow += error == TIMED_OUT
+        c.note = _skip_note(error, inputs)
+        return None
     if error is not None:
         return Counterexample(
             inputs=inputs, expected=c.hint.text, actual=f"raises {error}", found_by=by
@@ -129,6 +148,13 @@ def _violation(
     return None
 
 
+def _skip_note(error: str, inputs: dict[str, str]) -> str:
+    shown = ", ".join(f"{k}={v}" for k, v in inputs.items())
+    if error == TIMED_OUT:
+        return f"skipped inputs on which the function ran past {CALL_TIMEOUT_S}s (e.g. {shown})"
+    return f"skipped inputs that exceed Python's recursion limit (e.g. {shown})"
+
+
 def _mentions(e: ast.expr, h: Hint) -> bool:
     return any(isinstance(n, ast.Name) and n.id == h.result for n in ast.walk(e))
 
@@ -138,6 +164,10 @@ def _example_check(pid: str, ex: Example, fn: Any, names: list[str]) -> Property
     inputs = {k: repr(v) for k, v in zip(names, ex.args, strict=True)}
     if error is None and normalize(value) == normalize(ex.expected):
         return PropertyRefutation(id=pid, refuted=False, searched_by=["example"])
+    if error in (RECURSION_LIMIT, TIMED_OUT):
+        return PropertyRefutation(
+            id=pid, refuted=False, searched_by=["example"], note=_skip_note(error, inputs)
+        )
     return PropertyRefutation(
         id=pid,
         refuted=True,
@@ -181,6 +211,8 @@ def _hypothesis(
         c.found = found[-1]
     except Unsatisfiable:
         pass
+    except Flaky:  # the function itself is nondeterministic: no reproducible counterexample
+        c.note = "the function gave different results for the same input; not refuted"
 
 
 def _crosshair_file(

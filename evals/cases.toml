@@ -325,3 +325,527 @@ reason = "IMPURE_IO"
 target = "impure.py::spawn"
 category = "out_of_scope"
 reason = "NEEDS_CONCURRENCY_TOOL"
+
+# ---- M5 corpus expansion: known-good ----
+
+[[case]]
+target = "numx.py::fact_loop"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/fact_loop.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::fib"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/fib.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::is_even"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/is_even.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::median3"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/median3.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::div_ceil"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/div_ceil.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::saturating_sub"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/saturating_sub.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::round_down"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/round_down.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::triangular"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/triangular.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::pow_loop"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/pow_loop.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::between"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/between.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::exactly_one"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/exactly_one.lean"
+expected = {}
+
+[[case]]
+target = "numx.py::majority3"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/majority3.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::is_sorted"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/is_sorted.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::insert_sorted"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/insert_sorted.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::insertion_sort"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/insertion_sort.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::reverse_list"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/reverse_list.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::rle_decode"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/rle_decode.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::rle_encode"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/rle_encode.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::balanced"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/balanced.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::prefix_sums"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/prefix_sums.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::dedup_adjacent"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/dedup_adjacent.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::evens"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/evens.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::count_matches"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/count_matches.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::last_or"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/last_or.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::repeat"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/repeat.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::all_positive"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/all_positive.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::negate_all"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/negate_all.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::sort2"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/sort2.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::max_or"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/max_or.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::clamp_all"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/clamp_all.lean"
+expected = {}
+
+[[case]]
+target = "algos.py::count_in_range"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/count_in_range.lean"
+expected = {}
+# ---- M5 corpus expansion: planted bugs ----
+
+# range(1, n): (n-1)! is still >= 1, and 0! is still 1.
+[[case]]
+target = "numx_bugs.py::fact_loop"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/fact_loop.lean"
+expected = { P1 = "holds", E1 = "refuted", E2 = "holds", R1 = "holds", R2 = "holds", R3 = "unproven" }
+
+# One step short: fib(0) is still 0.
+[[case]]
+target = "numx_bugs.py::fib"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/fib.lean"
+expected = { P1 = "holds", E1 = "refuted", E2 = "refuted", R1 = "holds", R2 = "unproven", R3 = "unproven" }
+
+# Still one of the inputs and within [min, max]; only the doctest and symmetry see it.
+[[case]]
+target = "numx_bugs.py::median3"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/median3.lean"
+expected = { P1 = "holds", P2 = "holds", E1 = "refuted", R1 = "holds", R2 = "holds", R3 = "unproven" }
+
+# Both doctests pass (7/2 and -7/2 are not exact); exact divisions break the postcondition.
+[[case]]
+target = "numx_bugs.py::div_ceil"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/div_ceil.lean"
+expected = { P1 = "refuted", E1 = "holds", E2 = "holds", R1 = "unproven" }
+
+# b - a is still non-negative; only the a < b clause sees it.
+[[case]]
+target = "numx_bugs.py::saturating_sub"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/saturating_sub.lean"
+expected = { P1 = "holds", P2 = "holds", P3 = "refuted", R1 = "holds", R2 = "holds", R3 = "unproven" }
+
+# Negative x only; the result still lies in (x - m, x].
+[[case]]
+target = "numx_bugs.py::round_down"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/round_down.lean"
+expected = { P1 = "refuted", P2 = "holds", E1 = "refuted", R1 = "unproven", R2 = "holds" }
+
+[[case]]
+target = "numx_bugs.py::triangular"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/triangular.lean"
+expected = { P1 = "refuted", R1 = "unproven" }
+
+# x is dropped when it belongs at the end; what is kept stays sorted.
+[[case]]
+target = "algos_bugs.py::insert_sorted"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/insert_sorted.lean"
+expected = { P1 = "refuted", P2 = "holds", E1 = "holds", R1 = "unproven", R2 = "holds", R3 = "unproven" }
+
+# The buggy insert drops everything inserted into []: the result is always [], which is sorted.
+[[case]]
+target = "algos_bugs.py::insertion_sort"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/insertion_sort.lean"
+expected = { P1 = "refuted", P2 = "holds", E1 = "refuted", R1 = "unproven", R2 = "holds", R3 = "unproven" }
+
+# The identity: same length, and its own inverse. Only the doctest sees it.
+[[case]]
+target = "algos_bugs.py::reverse_list"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/reverse_list.lean"
+expected = { P1 = "holds", P2 = "holds", E1 = "refuted", R1 = "unproven" }
+
+[[case]]
+target = "algos_bugs.py::rle_encode"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/rle_encode.lean"
+expected = { P1 = "refuted", P2 = "holds", E1 = "refuted", R1 = "unproven", R2 = "holds" }
+
+[[case]]
+target = "algos_bugs.py::balanced"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/balanced.lean"
+expected = { E1 = "holds", E2 = "holds", E3 = "refuted", R1 = "holds", R2 = "unproven" }
+
+[[case]]
+target = "algos_bugs.py::dedup_adjacent"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/dedup_adjacent.lean"
+expected = { P1 = "holds", P2 = "refuted", E1 = "refuted", R1 = "holds", R2 = "unproven" }
+
+[[case]]
+target = "algos_bugs.py::all_positive"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/all_positive.lean"
+expected = { P1 = "refuted", R1 = "unproven" }
+
+# d takes part in the maximum: still an upper bound, no longer always an element.
+[[case]]
+target = "algos_bugs.py::max_or"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/max_or.lean"
+expected = { P1 = "refuted", P2 = "holds", P3 = "holds", R1 = "unproven", R2 = "holds", R3 = "holds" }
+
+# ---- M5 corpus expansion: spec/code conflicts ----
+
+[[case]]
+target = "disagree.py::triple"
+category = "conflict"
+inputs = ["docstring", "tests"]
+expected = { E1 = "contradiction", E2 = "contradiction" }
+
+[[case]]
+target = "disagree.py::dec"
+category = "conflict"
+inputs = ["english", "tests"]
+expected = { P1 = "contradiction", E1 = "contradiction" }
+
+[[case]]
+target = "disagree.py::twice_len"
+category = "conflict"
+inputs = ["docstring", "tests"]
+expected = { P1 = "contradiction", E1 = "contradiction" }
+
+[[case]]
+target = "disagree.py::is_pos"
+category = "conflict"
+inputs = ["english", "docstring"]
+expected = { P1 = "contradiction", E1 = "contradiction" }
+
+[[case]]
+target = "disagree.py::sum3"
+category = "conflict"
+inputs = ["tests", "docstring"]
+expected = { P1 = "contradiction", E1 = "contradiction" }
+
+# The intent agrees with itself, not with the code.
+[[case]]
+target = "disagree.py::nonneg_diff"
+category = "conflict"
+inputs = ["docstring"]
+expected = { P1 = "refuted" }
+
+[[case]]
+target = "disagree.py::count_big"
+category = "conflict"
+inputs = ["english"]
+expected = { P1 = "refuted" }
+
+[[case]]
+target = "disagree.py::avg_floor"
+category = "conflict"
+inputs = ["docstring"]
+expected = { E1 = "refuted" }
+
+[[case]]
+target = "disagree.py::first_or"
+category = "conflict"
+inputs = ["english", "tests"]
+expected = { P1 = "refuted", E1 = "refuted" }
+
+[[case]]
+target = "disagree.py::abs_max"
+category = "conflict"
+inputs = ["docstring"]
+expected = { P1 = "refuted" }
+
+[[case]]
+target = "disagree.py::wrap_index"
+category = "conflict"
+inputs = ["docstring"]
+expected = { P1 = "refuted" }
+
+# ---- M5 corpus expansion: out of scope ----
+
+[[case]]
+target = "loops.py::gcd"
+category = "out_of_scope"
+inputs = ["docstring"]
+reason = "NONTERMINATION"
+expected = { P1 = "out_of_scope" }
+
+[[case]]
+target = "loops.py::fact_rec"
+category = "out_of_scope"
+inputs = ["docstring"]
+reason = "NONTERMINATION"
+expected = { P1 = "out_of_scope" }
+
+[[case]]
+target = "loops.py::binary_search"
+category = "out_of_scope"
+inputs = ["docstring"]
+reason = "UNSUPPORTED_CONSTRUCT"
+expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+
+[[case]]
+target = "impure.py::read_limit"
+category = "out_of_scope"
+reason = "IMPURE_IO"
+
+[[case]]
+target = "impure.py::to_celsius"
+category = "out_of_scope"
+reason = "FLOAT_SEMANTICS"
+
+[[case]]
+target = "impure.py::greet"
+category = "out_of_scope"
+reason = "UNSUPPORTED_CONSTRUCT"
+
+[[case]]
+target = "impure.py::push"
+category = "out_of_scope"
+reason = "IMPURE_IO"
+
+[[case]]
+target = "impure.py::stamp"
+category = "out_of_scope"
+reason = "IMPURE_IO"
+
+# ---- M5 corpus expansion: AI-generated (unedited agent output; see ai_*.py) ----
+# All ten are correct as far as a careful reading shows, so nothing may be refuted. Idiomatic
+# agent code mostly falls outside the subset: there only refutation speaks.
+
+[[case]]
+target = "ai_claude.py::clamp"
+category = "ai_generated"
+inputs = ["english"]
+reference = "specs/clamp.lean"
+expected = { P1 = "holds", P2 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "ai_claude.py::ceil_div"
+category = "ai_generated"
+inputs = ["english"]
+expected = { P1 = "holds" }
+
+[[case]]
+target = "ai_claude.py::dedupe_consecutive"
+category = "ai_generated"
+inputs = ["english"]
+reason = "UNSUPPORTED_CONSTRUCT"
+expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+
+[[case]]
+target = "ai_claude.py::is_balanced"
+category = "ai_generated"
+inputs = ["english"]
+reason = "UNSUPPORTED_CONSTRUCT"
+expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+
+[[case]]
+target = "ai_claude.py::digit_sum"
+category = "ai_generated"
+inputs = ["english"]
+reason = "UNSUPPORTED_CONSTRUCT"
+expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+
+[[case]]
+target = "ai_codex.py::count_between"
+category = "ai_generated"
+inputs = ["english"]
+reason = "UNSUPPORTED_CONSTRUCT"
+expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+
+[[case]]
+target = "ai_codex.py::run_length_encode"
+category = "ai_generated"
+inputs = ["english"]
+reason = "UNSUPPORTED_CONSTRUCT"
+expected = { P1 = "out_of_scope", P2 = "out_of_scope", P3 = "out_of_scope" }
+
+[[case]]
+target = "ai_codex.py::second_largest"
+category = "ai_generated"
+inputs = ["english"]
+reason = "UNSUPPORTED_CONSTRUCT"
+expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+
+[[case]]
+target = "ai_codex.py::merge_sorted"
+category = "ai_generated"
+inputs = ["english"]
+reason = "NONTERMINATION"
+expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+
+[[case]]
+target = "ai_codex.py::is_leap_year"
+category = "ai_generated"
+inputs = ["english"]
+expected = { P1 = "holds", P2 = "holds", P3 = "holds" }
