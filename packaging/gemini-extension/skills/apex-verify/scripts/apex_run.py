@@ -59,7 +59,7 @@ def _first_line(p: dict) -> str:
     if v == "model_checked" and (m := p.get("model_check")):
         return (
             f"TLC: {m.get('distinct_states', 0)} states, bounds {m.get('constants') or {}}; "
-            f"{m.get('traces_checked', 0)} recorded runs conform; not a proof"
+            f"{m.get('traces_checked', 0)} distinct runs conform; not a proof"
         )
     if v == "fidelity_failed" and (m := p.get("model_check")) and m.get("rejected_trace"):
         return "a real run is not a behavior of the TLA+ spec"

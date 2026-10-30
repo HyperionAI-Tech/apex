@@ -2,32 +2,55 @@
 
 ### Democratizing Formal Verification for the Agentic Era
 
-**Apex checks whether your Python code does what you said it should. Where it can, it proves it
-the way mathematicians prove theorems. Where it can't, it says so plainly.**
+**Apex checks whether your code does what you said it should, using three verification
+engines behind one honest report:**
+
+| Engine | What it does | Answers |
+|---|---|---|
+| 🧮 **Lean 4 proofs** | proves a property mathematically, for *every* possible input | "Is this always true?" |
+| 🔀 **TLA+ model checking** | explores *every* interleaving of concurrent code within bounds, and checks that real runs match the model | "Can threads ever break this?" |
+| 🎯 **Fuzzing and refutation** | hammers the *real* code with generated, coverage-guided and symbolic inputs | "Can I find an input that breaks it?" |
 
 You give Apex a function and whatever description of its behaviour you already have: a
-docstring, a few tests, a couple of sentences in plain English. Apex turns that description into
-precise mathematical statements and works on them, and comes back with one of three answers:
+docstring, a few tests, a couple of sentences in plain English. Apex routes each function to the
+engines that fit it. A pure function in the supported subset goes to Lean. Code Lean can't model
+is fuzzed. Concurrent code gets a TLA+ spec. Every engine runs on the same statement of intent,
+and the answers come back in one report:
 
-- ✅ **Proven.** A machine-checked proof, in the Lean 4 proof assistant, that the code always
-  meets the statement, for every possible input, not just the ones a test happened to try.
-- ❌ **Refuted.** A concrete input that makes your real code misbehave, plus a ready-made
-  regression test that reproduces it.
+- ✅ **Proven.** A machine-checked Lean proof that the code meets the statement for every
+  input.
+- ❌ **Refuted.** A concrete input, or a recorded thread schedule, that makes your real code
+  misbehave. It always comes with something you can replay.
+- 🔎 **Evidence.** `model_checked` (TLA+) or `fuzzed` (fuzzing): strong, stated with its exact
+  bounds, and never passed off as a proof.
 - ⚠️ **A gap.** An honest "I couldn't establish this", with the reason and what would have to
   change.
 
-You don't need to know Lean or any formal methods. Apex writes the theorems and searches for the
-proofs, with help from an AI model if you have one. It asks a person for one thing only: to
-confirm that each statement says what the code is *meant* to do.
+You don't need to know Lean, TLA+ or fuzzing. Apex writes the theorems and specs, runs the
+engines, and uses an AI model if you have one to do the tedious parts. It asks a person for one
+thing only: to confirm that each statement says what the code is *meant* to do.
 
+One run, three engines. Here a clamp has an off-by-one, an integer square root uses a `while`
+loop Lean can't model, and two thread workers share a counter (one of them without a lock):
+
+```sh
+apex check shapes.py::clamp search.py::isqrt workers.py::racy_worker workers.py::locked_worker --fuzz 10
 ```
-$ apex check shapes.py
-                            Apex 0.1.0.dev0 · exit 1
-│ shapes.clamp │ P1 │ proven_unreviewed │ statement pending: run `apex review shapes.py::clamp --approve P1` │
-│ shapes.clamp │ P2 │ refuted           │ input (x=1, lo=0, hi=1): lo <= x <= hi -> r == x; returns 0          │
-│ shapes.clamp │ E1 │ refuted           │ input (x=5, lo=0, hi=3): 3; returns 2                                │
-  fidelity shapes.clamp: Lean model agrees with Python on 200 generated inputs
-```
+
+| function | property | verdict | detail |
+|---|---|---|---|
+| `shapes.clamp` | P1 | `proven_unreviewed` | 🧮 Lean proved it; statement pending your approval |
+| `shapes.clamp` | P2 | `refuted` | input (x=0, lo=-1, hi=0): lo <= x <= hi -> r == x; returns -1 |
+| `search.isqrt` | P1 | `fuzzed` | 🎯 no counterexample in 7,087 executions (hypothesis, 10s); not a proof |
+| `workers.racy_worker` | T_NoLostUpdate | `refuted` | 🔀 NoLostUpdate broke in a real run (run 9): reached count = 3 after 4 observed states |
+| `workers.racy_worker` | T_NeverAhead | `model_checked` | 🔀 TLC: 201 states (N=2, K=2); 5 distinct runs conform; not a proof |
+| `workers.locked_worker` | T_NoLostUpdate | `model_checked` | 🔀 TLC: 36 states (N=2, K=2); 1 distinct run conforms; not a proof |
+| `workers.locked_worker` | T_NeverAhead | `model_checked` | 🔀 TLC: 36 states (N=2, K=2); 1 distinct run conforms; not a proof |
+
+*(A real run; the engine markers were added and the details shortened. Exit 1, because there are
+failures. Fix the off-by-one and approve the statements, and `clamp` becomes `proven`. Add the
+lock, and `racy_worker` joins `locked_worker` at `model_checked`. `isqrt` stays `fuzzed`: strong
+evidence, honestly labeled, because Lean can't model its loop.)*
 
 > **Status:** research prototype, MIT-licensed, not on PyPI yet. Start with the
 > [quickstart](docs/QUICKSTART.md), and read [what Apex cannot prove](docs/LIMITS.md) before
@@ -47,7 +70,8 @@ $ apex check shapes.py
   - [On the command line](#on-the-command-line)
   - [With a model doing the hard parts](#with-a-model-doing-the-hard-parts)
   - [Inside a coding agent](#inside-a-coding-agent-skill-and-mcp)
-  - [Beyond Lean: fuzzing and TLA+](#beyond-lean-fuzzing-and-tla)
+  - [Fuzzing and refutation](#fuzzing-and-refutation)
+  - [TLA+ for concurrent code](#tla-for-concurrent-code)
   - [In CI](#in-ci)
   - [Configuration](#configuration)
 - [How it works](#how-it-works)
@@ -81,11 +105,16 @@ The usual safety nets were built for a slower world, and they strain under this 
 - **"It works" is a claim, not evidence.** An agent saying it verified something is just more
   generated text.
 
-The strongest safety net we have is **formal verification**: a mathematical proof, checked by a
-machine, that code meets its specification for *every* input. It has protected operating-system
-kernels, compilers and cryptography for decades. But it has stayed out of reach for ordinary
-code, because it needs specialists to write formal models, state theorems in a proof assistant's
-language and prove them by hand. That is weeks of expert work for a single function.
+The strongest safety nets we have are the **formal methods**:
+
+- **Theorem proving** shows code meets its specification for *every* input.
+- **Model checking** explores every way concurrent code can interleave.
+- **Systematic fuzzing** throws millions of inputs at code to find the one that breaks it.
+
+Together they have protected operating-system kernels, compilers, cryptography and distributed
+systems for decades. But they have stayed out of reach for ordinary code. Each needs specialists
+with its own tooling and language (a proof assistant, a specification language, a fuzzing
+harness), and weeks of expert work per component.
 
 The agentic era makes this both **more necessary** (more code than anyone can review) and
 **newly possible** (AI models are good at the tedious parts of formal work). What has been
@@ -98,12 +127,20 @@ Apex splits the job three ways, so that no single party has to be trusted with e
 | Role | Who | What they do |
 |---|---|---|
 | **Propose** | an AI model, your coding agent, or Apex's own heuristics | turn English into formal statements, suggest proofs, draft specs |
-| **Decide** | Lean 4, a fixed verdict path, and your real Python code | check every proof cold, audit its axioms, run the real code to confirm or refute |
+| **Decide** | Lean 4, TLC, and your real code under fuzzers | check every proof cold and audit its axioms, model-check specs, run the real code to confirm or refute |
 | **Approve** | a person | confirm that each statement says what the code is *for* |
 
+Each engine's result is labeled by how strong it is, and the labels never blur:
+
+| Strength | Verdict | From |
+|---|---|---|
+| for every input | `proven` | Lean 4, on a person-approved statement |
+| for every interleaving, within bounds | `model_checked` | TLA+/TLC, with real runs conforming to the spec |
+| no counterexample in N executions | `fuzzed` | fuzzing campaigns on the real code |
+| observed failure | `refuted` | any engine, but only once Apex watched the real code fail |
+
 A model can make Apex faster, but it can never make Apex say `proven`. Only a Lean proof of a
-person-approved statement does that. Everything else gets an honest label: a bug Apex watched
-happen, evidence from fuzzing or model checking, or a gap with a reason.
+person-approved statement does that.
 
 That is what "democratizing" means here: no proof expertise needed, the same guarantees a
 verification engineer would insist on, and it meets you where you already work. That means the
@@ -148,16 +185,15 @@ a timeout).
 
 ## Install
 
-Requirements:
+Requirements, by engine:
 
-- Python 3.12+ and [uv](https://docs.astral.sh/uv/).
-- [elan](https://github.com/leanprover/elan), the Lean toolchain manager.
-- About 5 GB of disk once, for the pinned Lean toolchain and the prebuilt Mathlib cache. They are
-  shared by every project.
-- Optional:
-  - Java 11+ for TLA+;
-  - a libFuzzer-capable clang for Atheris (on macOS, Homebrew LLVM);
-  - a model provider (Claude Code or Codex logged in, or an API key).
+| For | You need |
+|---|---|
+| Apex itself, refutation and Hypothesis fuzzing | Python 3.12+ and [uv](https://docs.astral.sh/uv/) |
+| Lean 4 proofs | [elan](https://github.com/leanprover/elan); about 5 GB of disk once for the pinned toolchain and Mathlib cache, shared by every project |
+| TLA+ model checking | Java 11+; `apex init --tla` fetches the pinned TLC |
+| coverage-guided fuzzing (optional) | the `fuzz` extra (Atheris), built with a libFuzzer-capable clang (Homebrew LLVM on macOS) |
+| model-assisted proofs and specs (optional) | Claude Code or Codex logged in, or an API key |
 
 Apex is not on PyPI yet; install it from a checkout:
 
@@ -316,13 +352,16 @@ with Lean's errors mapped to the line the agent edits, and the goal state. The s
 matrix runs real Claude Code and Codex sessions through the full loop: write code, fail
 verification, read the counterexample, fix, pass.
 
-### Beyond Lean: fuzzing and TLA+
+### Fuzzing and refutation
 
-Lean only models a pure subset of Python. For the rest, Apex gathers **evidence** and labels it
-as such. It never upgrades evidence to `proven`.
+Refutation runs on every check:
 
-**Fuzzing**, for pure code outside the subset (`while` loops, indexing, idiomatic agent code) or
-properties Lean left open:
+- the examples from your docstring and tests;
+- Hypothesis property-based search;
+- CrossHair symbolic execution, which finds needle-in-a-haystack inputs random testing misses.
+
+A **fuzzing campaign** goes further and records what it did. It's for code Lean can't model
+(`while` loops, indexing, idiomatic agent code) or properties Lean left open:
 
 ```sh
 apex fuzz loops.py::isqrt --seconds 30          # Hypothesis campaign, recorded per property
@@ -335,8 +374,10 @@ apex check src/ --fuzz 10                       # fuzz whatever Lean leaves open
 - A counterexample is replayed on the real code and gives `refuted`.
 - The evidence lapses when the function or the property changes.
 
-**TLA+**, for concurrent code (threads, locks, shared state). A function gets a bundle in
-`.apex/tla/<module>/<function>/` with three files:
+### TLA+ for concurrent code
+
+Lean can't reason about thread interleavings; TLA+ can. A concurrent function (threads, locks,
+shared state) gets a bundle in `.apex/tla/<module>/<function>/` with three files:
 
 - `Spec.tla`, the spec (PlusCal is fine);
 - `Spec.cfg`, the bounds and invariants;
@@ -395,133 +436,171 @@ ignore = ["tests/**", "migrations/**"]
 
 ## How it works
 
+Apex is one pipeline with three verification engines behind it. The shared front half
+understands your code and your intent. A router sends each function to the engines that can
+answer for it. The shared back half turns every engine's result into one report.
+
 ```mermaid
-flowchart LR
-    subgraph IN[Your code and intent]
-      SRC[Python function]
-      DOC[Docstring]
-      TST[Tests]
-      ENG[English spec]
+flowchart TB
+    subgraph IN["Your code and intent"]
+      SRC[Function]
+      INT["Docstring · tests · English spec"]
     end
-    SRC --> AN[Analyze<br/>purity, types]
-    AN --> TR[Translate<br/>Python to Lean model]
-    DOC & TST & ENG & SRC --> FU[Fuse intent<br/>Intent Model, conflicts]
-    FU --> DR[Draft statements<br/>one Lean theorem per property]
-    TR --> DR
-    DR --> RV{{Person approves<br/>statements}}
-    DR --> PR[Prove<br/>tactic tiers, then a model<br/>fed Lean's errors]
-    PR --> VP[Verdict path<br/>cold compile, axiom audit]
-    VP --> FI[Fidelity check<br/>Lean model vs real Python]
-    FU --> RF[Refute<br/>examples, Hypothesis, CrossHair]
-    FU --> FZ[Fuzz<br/>Hypothesis, Atheris]
-    SRC --> TLA[TLA+<br/>TLC + trace validation]
-    RV --> REP
-    FI --> REP[Report<br/>verdicts, gaps, exit code,<br/>SARIF, explain, suggest]
-    RF --> REP
-    FZ --> REP
-    TLA --> REP
+    SRC --> AN["Analyze<br/>purity · types · concurrency"]
+    SRC & INT --> FU["Fuse intent<br/>Intent Model · conflicts"]
+    AN --> RT{Route}
+    FU --> RT
+    RT -- "pure, in the Lean subset" --> LEAN
+    RT -- "pure, any code" --> FUZZ
+    RT -- "concurrent" --> TLA
+    subgraph LEAN["🧮 Lean 4: proof"]
+      direction TB
+      L1["Translate to a Lean model"] --> L2["Draft one theorem<br/>per property"]
+      L2 --> L3["Prove: tactics,<br/>then a model + Lean's errors"]
+      L3 --> L4["Verdict path: cold compile,<br/>axiom audit"]
+      L4 --> L5["Fidelity: Lean model<br/>vs the real code"]
+    end
+    subgraph FUZZ["🎯 Fuzzing and refutation: search"]
+      direction TB
+      F1["Examples from docs and tests"] --> F2["Hypothesis · CrossHair"]
+      F2 --> F3["Fuzzing campaigns:<br/>Hypothesis · Atheris"]
+      F3 --> F4["Replay every<br/>counterexample"]
+    end
+    subgraph TLA["🔀 TLA+: model checking"]
+      direction TB
+      T1["Spec bundle: spec,<br/>bounds, harness"] --> T2["TLC: every<br/>interleaving in bounds"]
+      T2 --> T3["Record real runs<br/>under varied schedules"]
+      T3 --> T4["Trace validation:<br/>runs vs the spec"]
+    end
+    AP{{"A person approves<br/>statements and specs"}} -.-> LEAN
+    AP -.-> TLA
+    LEAN & FUZZ & TLA --> REP["One report<br/>verdicts · gaps · exit code<br/>SARIF · explain · suggest"]
 ```
 
-1. **Analyze.** Apex resolves the target, classifies purity (I/O, globals, randomness,
-   concurrency, floats), and keeps the reason and the pure core when a function is impure.
-2. **Translate.** It turns the function into a Lean model. The translator accepts a deliberately
-   small subset (ints, bools, lists, tuples, `Optional` returns, `if`, `for` loops, list
-   comprehensions, calls within the module) and refuses anything it can't model *exactly*. It
-   never approximates.
-3. **Fuse intent.** All four sources become one Intent Model with stable property IDs (P1, P2,
-   ...; E1, ... for examples), confidence scores, and conflicts called out.
-4. **Draft statements.** Each formal hint becomes a Lean theorem, translated by the same code as
-   the function, so the statement and the model speak the same language. The theorems are
-   written to `.apex/lean/<module>/<function>/Spec.lean`.
-5. **Approve.** A person reads each statement in English and in Lean and approves it in an
-   interactive terminal. Approval is tied to a hash of the function and the statement, so an
-   edit to either voids it.
-6. **Prove.** Cheap deterministic tactic tiers go first (`decide`, `omega`, `simp`, induction),
-   then optionally a model, in a fixer loop that reads Lean's errors and goal states.
-7. **Verdict path.** Only one function can say "proved". It compiles the spec cold in a clean
-   directory, screens for tricks (`sorry`, `native_decide`, forged output, kernel-skipping
-   options), and audits every theorem's axioms against a fixed allowlist.
-8. **Fidelity check.** The compiled Lean model and the real Python run on 200 generated inputs,
-   restricted to the preconditions. Any disagreement discards the proof as `fidelity_failed`.
-9. **Refute and fuzz.** Independently of Lean, Apex searches the real Python for counterexamples
-   with doctest and test examples, Hypothesis and CrossHair, plus optional fuzzing campaigns.
-   Every counterexample is replayed before it is reported.
-10. **Report.** Verdicts, reason codes, next steps and exit code go out in Rich, Markdown, JSON
-    or SARIF.
+**Shared front half**
 
-Concurrent code takes the TLA+ path instead (see [above](#beyond-lean-fuzzing-and-tla)).
+1. **Analyze.** Resolve the target and classify it: pure or impure (I/O, globals, randomness,
+   floats), concurrent or not, inside the Lean subset or not, and why.
+2. **Fuse intent.** Read docstrings, tests, English specs and leading asserts. Build one Intent
+   Model with stable property IDs (P1, P2, ...; E1, ... for examples), and call out conflicts
+   between sources.
+3. **Route.** Send each function to every engine that can answer for it:
 
-The code is organized in layers:
+   | Function | Lean | Fuzzing and refutation | TLA+ |
+   |---|---|---|---|
+   | pure, inside the subset | proves | always runs too | n/a |
+   | pure, outside the subset | n/a | refutes or fuzzes | n/a |
+   | concurrent | n/a | n/a | model-checks |
+   | other impure (I/O) | n/a | n/a | n/a: `out_of_scope`, with the pure core |
+
+**🧮 Lean 4: proof**, the only engine that can say `proven`
+
+4. **Translate** the function into a Lean model. The translator takes a deliberately small,
+   exact subset and refuses anything it can't model faithfully.
+5. **Draft** one Lean theorem per formal property, using the same translator, so the statement
+   and the model speak the same language. A person approves each statement.
+6. **Prove** with cheap deterministic tactic tiers (`decide`, `omega`, `simp`, induction), then
+   optionally a model in a fixer loop that reads Lean's errors and goal states.
+7. **Judge** on the verdict path: a cold compile, a screen for tricks (`sorry`,
+   `native_decide`, forged output), and an axiom audit against a fixed allowlist.
+8. **Cross-check** the compiled Lean model against the real code on 200 generated inputs. Any
+   disagreement discards the proof as `fidelity_failed`.
+
+**🎯 Fuzzing and refutation: search on the real code**
+
+9. **Refute** on every check, using the examples from docs and tests, Hypothesis property-based
+   search and CrossHair symbolic execution.
+10. **Fuzz** with a recorded campaign when asked (`apex fuzz`, `apex check --fuzz`), using
+    Hypothesis or coverage-guided Atheris.
+11. **Replay** every counterexample on the real code before it becomes `refuted`. A clean
+    campaign gives `fuzzed`.
+
+**🔀 TLA+: model checking concurrent code**
+
+12. **Specify** the code in a bundle: spec, bounds and invariants, plus a harness that runs the
+    real code. A model drafts it, and a person approves it.
+13. **Model-check** with TLC, which explores every interleaving the spec allows within the bounds.
+14. **Validate** the spec against reality. The real code runs many times under varied thread
+    schedules, and TLC checks that each recorded run is a behavior of the spec. An invariant
+    broken in a real run is `refuted`, and a run the spec doesn't allow is `fidelity_failed`.
+
+**Shared back half**
+
+15. **Report** one verdict per property, with reason codes, next steps and the run's exit code.
+    The output is Rich, Markdown, JSON or SARIF, plus `apex explain` (plain English) and
+    `apex suggest` (fixes and regression tests).
+
+The code is organized the same way:
 
 | Layer | Package | Role |
 |---|---|---|
 | Contracts | `apex.core` | verdicts, reason codes, Intent Model, report, config, JSON Schemas |
-| Understanding | `apex.analyze`, `apex.intent`, `apex.translate` | purity, intent mining and fusion, Python to Lean |
-| Proving | `apex.theorems`, `apex.prove`, `apex.lean` | statements and review store, proof search, pinned Lean project, verdict compiler |
-| Checking the real code | `apex.fidelity`, `apex.tla` | fidelity bridge, refutation, fuzzing; TLA+ bundles, TLC, trace validation |
+| Front half | `apex.analyze`, `apex.intent` | analysis and routing facts; intent mining and fusion |
+| 🧮 Lean engine | `apex.translate`, `apex.theorems`, `apex.prove`, `apex.lean` | translation, statements and review, proof search, pinned Lean project and verdict path |
+| 🎯 Search engine | `apex.fidelity` | refutation, fuzzing campaigns, and the fidelity bridge back to the Lean engine |
+| 🔀 TLA+ engine | `apex.tla` | bundles, pinned TLC, run recorder, trace validation, drafting |
 | Models | `apex.llm` | providers: agent CLIs or API keys (proposals only) |
 | Surfaces | `apex.cli`, `apex.mcp`, `apex.skill`, `apex.report` | CLI, MCP server, Agent Skill installer, renderers |
 | Orchestration | `apex.pipeline` | the deterministic verbs every surface calls |
 
 Every surface (CLI, MCP, skill) calls the same pipeline functions, so they cannot drift apart.
-Deeper internals are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the verdict path step by
-step, spec files as a trust boundary, the model proof loop, and the TLA+ conformance check.
+Deeper internals, engine by engine, are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Design principles
 
-1. **Lean is the only source of `proven`.** Nothing else can produce it: not a model, not an
-   agent, not a test campaign, not TLC.
-2. **Models propose; checkers decide.** Every model output (hints, proofs, TLA+ bundles) goes
+1. **Three engines, one honest scale.** Each engine answers a different question. Its verdict
+   says exactly how strong the answer is (every input, every interleaving within bounds, N
+   executions, or one observed failure), and the scale never blurs.
+2. **Only Lean says `proven`.** Not a model, not an agent, not a fuzzing campaign, not TLC.
+   `model_checked` and `fuzzed` are evidence: gaps, never passes.
+3. **Models propose; engines decide.** Every model output (hints, proofs, TLA+ bundles) goes
    through a deterministic check before it can affect a verdict.
-3. **A person approves meaning.** A machine can check that a proof is valid. Only a person can say
-   whether a statement is what the code is *for*. Approval needs an interactive terminal, so an
-   agent can never approve its own work.
-4. **Gaps are first-class output.** `unproven`, `out_of_scope` and the evidence verdicts carry a
-   reason code and next steps. Exit 0 can't happen by checking nothing.
-5. **Evidence is labeled as evidence.** Fuzzing and model checking produce `fuzzed` and
-   `model_checked`, which are gaps, never passes.
-6. **Refusing beats approximating.** A construct the translator can't model exactly is a gap,
+4. **A person approves meaning.** An engine can check a proof or a spec. Only a person can say
+   whether it states what the code is *for*. Approval needs an interactive terminal, so an agent
+   can never approve its own work.
+5. **Every model is checked against the real code.** Lean models are cross-checked by the
+   fidelity bridge, and TLA+ specs by trace validation. A result about the wrong model is
+   discarded, not reported.
+6. **Failures are observed, never inferred.** `refuted` means Apex ran the real code and watched
+   it fail, from any engine. A violation found only in a model stays a gap.
+7. **Refusing beats approximating.** What an engine can't model exactly is a gap with a reason,
    because a proof about the wrong model is worse than no proof.
-7. **Every model is checked against the real code.** Lean models are cross-checked by the
-   fidelity bridge, and TLA+ specs by trace validation.
-8. **Failures are observed, never inferred.** `refuted` means Apex ran the real code and watched
-   it break the property. A violation found only in a model stays a gap.
+8. **Gaps are first-class output.** Every gap carries a reason code and next steps. Exit 0 can't
+   happen by checking nothing.
 9. **Everything is pinned.** Lean, Mathlib and TLC are pinned by version and checksum, and
    upgrades are deliberate changes re-run against the eval corpus.
 
 ## What you are trusting
 
-A `proven` verdict rests on these:
+| Verdict | Rests on |
+|---|---|
+| `proven` (Lean) | the Lean 4 kernel and pinned Mathlib (axioms: only `propext`, `Classical.choice`, `Quot.sound`); the **approved statement** (Lean proves exactly what it says); the **translator** (the proof is about Apex's Lean model; the fidelity check tests that model against the real code, but testing isn't proof) |
+| `model_checked` (TLA+) | TLC; the **approved bundle**, especially the harness, whose `observe()` defines what "conforms" means; the **bounds** in `Spec.cfg`; the recorded runs, which sample schedules rather than cover them all |
+| `fuzzed` (fuzzing) | the campaign's **coverage** (inputs it never generated can still break the property) and the property's hint (a vacuous hint fuzzes clean) |
+| `refuted` (any) | nothing beyond Python itself: Apex ran the real code and watched it fail, and you can replay it |
 
-- **The Lean 4 kernel and the pinned Mathlib.** The axiom audit allows only `propext`,
-  `Classical.choice` and `Quot.sound`.
-- **The approved statement.** Lean proves exactly what it says, so a statement weaker than your
-  intent gives a proof of the weaker thing. That is why you read it before approving.
-- **The translator.** The proof is about Apex's Lean model of your function. The fidelity check
-  tests the model against the real Python, but testing isn't proof. The translator stays small
-  and refuses rather than guesses to keep this risk low.
-- **Partial correctness.** Preconditions (leading `assert`s, `pre:`, "Requires:") bound every
-  claim. Outside them the function promises nothing.
-
-`model_checked` additionally rests on the approved harness (its `observe()` defines what
-"conforms" means) and on the bounds in `Spec.cfg`.
+All of them are partial-correctness claims: preconditions (leading `assert`s, `pre:`,
+"Requires:") bound every claim, and outside them the function promises nothing.
 
 ## Limits
 
 The short version (the full list is in [docs/LIMITS.md](docs/LIMITS.md)):
 
-- **The Lean subset is small.**
+- **🧮 Lean: the subset is small.**
   - Not supported: `str`, `float`, `dict`, `set`, classes, `while` loops, recursion, indexing,
     early `return` in loops, exceptions, module constants, and calls into other modules.
-  - Many functions fit after a small rewrite (a `for` loop over a `range`, an accumulator). The
-    gap message points at the line.
-- **Idiomatic code often falls outside it.** Of 10 functions written by Claude Code and Codex
-  from one-line prompts, 3 fall inside the subset. The other 7 get refutation and fuzzing, not
-  proofs.
-- **Performance claims have no formal reading.** "Runs in linear time" stays text-only.
-- **`fuzzed` can sit on top of a bug.** A 20-second campaign once missed a planted bug that a
-  60-second one finds.
-- **`model_checked` holds within bounds only.** Two threads and two iterations is not N threads.
+  - Of 10 functions written by Claude Code and Codex from one-line prompts, 3 fall inside it.
+    The other 7 go to the search engine instead.
+  - Many functions fit after a small rewrite, and the gap message points at the line.
+- **🎯 Fuzzing: `fuzzed` can sit on top of a bug.** A 20-second campaign once missed a planted
+  bug that a 60-second one finds. CrossHair, not the fuzzers, is what catches exact-value
+  needles.
+- **🔀 TLA+: results hold within bounds only.**
+  - Two threads and two iterations is not N threads.
+  - Only invariants are checked, not temporal properties.
+  - A spec is only checked against the schedules the runs happened to hit.
+- **All engines: no performance claims.** "Runs in linear time" has no formal reading and stays
+  text-only.
 
 ## How well it works
 
@@ -592,7 +671,7 @@ Apex has been built phase by phase against the development handoff:
 | 3 | `apex check`, model proof search, SARIF, the exit-code contract |
 | 4 | MCP server and Agent Skill, verified in Claude Code and Codex |
 | 5 | Hardening: the 126-case corpus, quickstart, limits page |
-| 6 | Beyond Lean: fuzzing campaigns and TLA+ for concurrent code |
+| 6 | The search and TLA+ engines: fuzzing campaigns, TLA+ model checking for concurrent code |
 
 Still open:
 

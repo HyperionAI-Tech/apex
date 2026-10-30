@@ -47,10 +47,12 @@ def detail(p: PropertyResult, target: str = "<target>") -> str:
             m = p.model_check
             bounds = ", ".join(f"{k}={v}" for k, v in m.constants.items()) or "as configured"
             pending = "" if p.review and p.review.status == "approved" else "; spec not approved"
-            return (
-                f"TLC: {m.distinct_states:,} states ({bounds}); {m.traces_checked} recorded "
-                f"traces conform{pending}; not a proof"
+            runs = (
+                "1 distinct run conforms"
+                if m.traces_checked == 1
+                else f"{m.traces_checked} distinct runs conform"
             )
+            return f"TLC: {m.distinct_states:,} states ({bounds}); {runs}{pending}; not a proof"
         case Verdict.FIDELITY_FAILED if p.model_check and p.model_check.rejected_trace:
             steps = len(p.model_check.rejected_trace)
             return f"the code produced a {steps}-step trace the TLA+ spec does not allow"
