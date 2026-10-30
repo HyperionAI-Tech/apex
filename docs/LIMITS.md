@@ -22,10 +22,17 @@ It does **not** mean:
   not about CPython. The translator is part of what you trust. Apex reduces that risk in two
   ways: it refuses any construct it cannot model exactly, and it runs the compiled model against
   the real Python on generated inputs before reporting any proof. That check is testing, not
-  proof. A disagreement on an input it never generated would go unnoticed.
-- **The function terminates or raises nothing on inputs outside the preconditions.** Leading
-  `assert`s are preconditions, so the guarantee is partial correctness on inputs that pass them.
-  Where Python would raise on a failed precondition, there is no result to be wrong about.
+  proof. A disagreement on an input it never generated would go unnoticed. The check is also
+  thinner for loop-heavy functions: an input CPython needs more than 20 ms for is not sent to
+  Lean, whose evaluator is much slower. The report says how many inputs were compared and how
+  many were skipped.
+- **Anything about inputs outside the preconditions.** Leading `assert`s, `pre:` lines and
+  "Requires:" items are preconditions. Drafted statements assume them, refutation searches only
+  inside them, and the fidelity check compares the model with the Python only where they hold.
+  Outside them the function promises nothing. Python may raise there (`a // b` at `b == 0`)
+  while Lean's total model returns a value. A hand-written statement that does not assume a
+  precondition can therefore be proven about inputs the Python never handles. Check for this
+  when you approve one.
 - **Anything about performance.** Time, memory, and complexity ("runs in linear time") have no
   formal reading. Such requirements stay text-only (`SPEC_AMBIGUOUS`).
 
@@ -92,7 +99,10 @@ therefore pass refutation.
 - Source code alone yields only its leading `assert`s. What a function is *for* cannot be read
   off code without assuming the code is right.
 - When sources disagree (a doctest says `f(2) == 6`, a test says `f(2) == 5`), both properties
-  are `contradiction`. Apex does not pick a winner.
+  are `contradiction`. Apex does not pick a winner. A property whose hint calls a function in the
+  module (`reverse_list(r) == xs`) is never checked for contradictions. Evaluating it would run
+  the code under test, and a bug there would look like disagreeing sources. Refutation still
+  checks it against the code.
 
 ## Out of scope for this version
 

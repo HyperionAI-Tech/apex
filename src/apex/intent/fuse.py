@@ -9,14 +9,15 @@
 - Two examples with the same arguments and different results conflict.
 - An example conflicts with a property when, evaluated on the example's arguments and result
   (and the preconditions hold), the property's hint is false: the sources disagree, so the verdict
-  is `contradiction` and neither is checked against the code until a person decides.
+  is `contradiction` and neither is checked against the code until a person decides. A hint that
+  calls a module function is never checked this way: evaluating it would run the code under test,
+  so a bug in that code would pass for disagreeing sources. Refutation handles it instead.
 - IDs are stable across runs: a property keeps its ID as long as its hint (or, before it has one,
   its text) is unchanged, so approvals and Spec.lean theorem names keep pointing at the same claim.
 """
 
 import ast
 import contextlib
-from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, Literal
 
@@ -200,7 +201,6 @@ def fuse(
     mined: Mined,
     *,
     previous: IntentModel | None = None,
-    load_helpers: Callable[[], dict[str, Any]] | None = None,
 ) -> tuple[IntentModel, dict[str, Example]]:
     names = [n for n, _ in params] if params else [a.arg for a in info.node.args.args]
     helpers = module_functions(info)
@@ -271,9 +271,7 @@ def fuse(
             )
         )
 
-    conflicts += _example_conflicts(
-        properties, preconditions, example_by_id, names, helpers, load_helpers
-    )
+    conflicts += _example_conflicts(properties, preconditions, example_by_id, names, helpers)
 
     intent = IntentModel(
         function=FunctionRef(
@@ -304,7 +302,6 @@ def _example_conflicts(
     examples: dict[str, Example],
     names: list[str],
     helpers: set[str],
-    load_helpers: Callable[[], dict[str, Any]] | None,
 ) -> list[Conflict]:
     res = result_name(names)
     pres = []
@@ -312,7 +309,6 @@ def _example_conflicts(
         if c.formal_hint:
             with contextlib.suppress(HintError):
                 pres.append(parse_condition(c.formal_hint, names, helpers))
-    ns: dict[str, Any] | None = None
     out: list[Conflict] = []
     for p in properties:
         if p.kind == "example" or not p.formal_hint:
@@ -321,22 +317,19 @@ def _example_conflicts(
             hint = parse_hint(p.formal_hint, names, helpers)
         except HintError:
             continue
-        needs_ns = any(
+        runs_code = any(
             isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in helpers
             for e in (*hint.premises, hint.conclusion, *pres)
             for n in ast.walk(e)
         )
-        if needs_ns and ns is None:
-            try:
-                ns = load_helpers() if load_helpers else {}
-            except Exception:
-                ns = {}
+        if runs_code:
+            continue
         for eid, ex in examples.items():
             env = {**dict(zip(names, ex.args, strict=True)), res: ex.expected}
             try:
-                if not all(evaluate(c, env, ns) for c in pres):
+                if not all(evaluate(c, env, {}) for c in pres):
                     continue
-                ok = holds(hint, env, ns)
+                ok = holds(hint, env, {})
             except HintEvalError:
                 continue
             if ok is False:

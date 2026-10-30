@@ -8,13 +8,21 @@ why, and what would have to change.
 **New here? Start with the [quickstart](docs/QUICKSTART.md), and read
 [what Apex cannot prove](docs/LIMITS.md) before trusting a verdict.**
 
-**Status: Phase 5 (hardening).** The eval corpus has grown to the handoff's composition: 121
-cases, including ten functions written by Claude Code and Codex from one-line prompts and left
-unedited. False `proven` is 0 on the full corpus; 110/121 cases match expectations so far, and
-the other 11 are being worked through (they surfaced real bugs). Hardening fixes so far: a call into user code
-that runs too long (a loop over `range(2**40)`) or hits Python's recursion limit is now skipped,
-with a note, instead of hanging or crashing the run. Phase 4 (MCP server and Agent Skill) and
-Phase 3 (`apex check`, model proofs, SARIF) are underneath.
+**Status: Phase 5 (hardening).** The eval corpus has the handoff's composition: 121 cases,
+including ten functions written by Claude Code and Codex from one-line prompts and left
+unedited. False `proven` is 0 and all 121 cases match their expected verdicts. Growing the corpus
+surfaced real bugs, now fixed:
+
+- calls into user code that hang (a loop over `range(2**40)`) or hit the recursion limit;
+- results past Python's 4300-digit integer limit;
+- a fidelity check that ignored stated preconditions;
+- a conflict check that ran the code under test;
+- pure code labelled impure;
+- Lean reserved words (`repeat`) breaking the model.
+
+Phase 4 (MCP server and Agent Skill) and Phase 3 (`apex check`, model proofs, SARIF) are
+underneath. Next, Phase 6: TLA+ model checking and fuzzing for what Lean cannot model, as new
+non-proof verdicts.
 
 ## Quick tour
 
@@ -235,19 +243,26 @@ uv run python scripts/bench_repl.py   # warm REPL (~6 ms) vs cold verdict (~0.34
 
 The eval scoreboard reports false proven (must be 0), statement fidelity (drafted statements
 Lean shows equivalent to a hand-written reference), proof closure split by prover, refutation
-recall, conflict detection, and which intent sources produced a model. On the current corpus
-(46 cases):
+recall, conflict detection, and which intent sources produced a model. The corpus has 49
+known-good functions, 32 planted bugs, 15 spec/code conflicts, 15 out-of-scope functions and 10
+AI-generated ones. Tactics only (`--jobs 4`):
 
-| | tactics only | with `--provider claude-code --retries 2` |
-|---|---|---|
-| false proven | 0 | 0 |
-| cases matching expectations | 46/46 | 46/46 |
-| statement fidelity | 35/35 | 35/35 |
-| proof closure (true statements) | 56/82 (54 tactics, 2 supplied) | 82/82 (54 tactics, 2 supplied, 26 model) |
-| known-good functions fully proven | 7/18 | 16/18 |
-| refutation recall | 22/22 (one only CrossHair finds) | 22/22 |
-| conflict detection | 8/8 | 8/8 |
-| model proposals / wall time (`--jobs 3`) | - | 112 / 28 min |
+| | |
+|---|---|
+| false proven | 0 |
+| cases matching expectations | 121/121 |
+| statement fidelity | 56/82 drafted statements equivalent to a reference |
+| proof closure (true statements) | 113/217 (111 tactics, 2 supplied) |
+| known-good functions fully proven | 9/49 |
+| refutation recall | 49/49 |
+| conflict detection | 18/18 |
+| out-of-scope reason accuracy | 15/15 |
+| AI-generated functions inside the Lean subset | 3/10 (the other 7: refutation only) |
+| median time per function | 8.2 s |
+
+With `--provider claude-code --retries 2` on the earlier 46-case corpus, a model closed every
+true statement the tactics left open (82/82, 26 by the model) with false proven still 0. That
+run has not been repeated on the 121-case corpus yet.
 
 Each canary declares its expected outcome in its first line. Bad canaries that cheat
 (`sorry`, `admit`, `native_decide`, a user `axiom`, a forged audit line) also assert that the

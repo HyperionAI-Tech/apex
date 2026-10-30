@@ -100,3 +100,29 @@ def test_scaffold_appends_new_drafts_and_never_rewrites(
     assert sc.appended == ["P1"] and not sc.spec_written
     assert spec.read_text().startswith(before)
     assert scaffold(target, ws, lean_project).appended == []
+
+
+@pytest.mark.lean
+@pytest.mark.parametrize("pre", ["    pre: b != 0\n", ""])
+def test_fidelity_is_compared_inside_the_stated_preconditions(
+    tmp_path: Path, lean_project: LeanProject, pre: str
+) -> None:
+    # Lean's `a / 0` is 0; Python raises. Inside `pre: b != 0` the model and the code agree;
+    # with no precondition the disagreement at b == 0 must still discard the proof.
+    (tmp_path / "q.py").write_text(
+        f'def quot(a: int, b: int) -> int:\n    """Floor quotient.\n\n{pre}\n'
+        '    >>> quot(7, 2)\n    3\n    """\n    return a // b\n'
+    )
+    ws = Workspace.discover(tmp_path)
+    target = str(tmp_path / "q.py::quot")
+    scaffold(target, ws, lean_project)
+    assert list(prove_tactics(target, ws, project=lean_project).closed) == ["E1"]
+    fn = verify([target], ws, project=lean_project, fidelity_n=50).functions[0]
+    assert fn.fidelity is not None
+    if pre:
+        assert fn.fidelity.agree and fn.fidelity.domain == "b != 0"
+        assert fn.properties[0].verdict is Verdict.PROVEN_UNREVIEWED
+    else:
+        assert not fn.fidelity.agree and fn.fidelity.mismatch
+        assert fn.fidelity.mismatch.inputs["b"] == "0"
+        assert fn.properties[0].verdict is Verdict.FIDELITY_FAILED

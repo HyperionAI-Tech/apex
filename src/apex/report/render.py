@@ -65,9 +65,14 @@ def print_report(report: Report, console: Console | None = None) -> None:
     for f in report.functions:
         if f.fidelity:
             ok = "agrees" if f.fidelity.agree else "DISAGREES"
+            skipped = (
+                f" ({f.fidelity.skipped} more skipped: too slow or too deep for Python)"
+                if f.fidelity.skipped
+                else ""
+            )
             console.print(
                 f"  fidelity {f.qualname}: Lean model {ok} with Python on "
-                f"{f.fidelity.inputs_checked} generated inputs"
+                f"{f.fidelity.inputs_checked} generated inputs{skipped}"
             )
 
 

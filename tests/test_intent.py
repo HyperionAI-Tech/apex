@@ -219,6 +219,27 @@ def test_example_contradicting_a_property_is_a_conflict(tmp_path: Path) -> None:
     assert [c.property_ids for c in intent.conflicts] == [["P1", "E1"]]
 
 
+def test_a_hint_that_runs_module_code_is_never_a_conflict(tmp_path: Path) -> None:
+    # The planted bug makes reverse_list the identity, so evaluating P1 on E1 with the real
+    # function fails. That is the code disagreeing with the intent (refutation's job), not two
+    # intent sources disagreeing with each other.
+    path = _module(
+        tmp_path,
+        "m",
+        '''
+        def reverse_list(xs: list[int]) -> list[int]:
+            """post: reverse_list(__return__) == xs
+
+            >>> reverse_list([1, 2, 3])
+            [3, 2, 1]
+            """
+            return xs
+        ''',
+    )
+    intent, _ = _fuse(path, "reverse_list", mine_docstring(load_function(f"{path}::reverse_list")))
+    assert intent.conflicts == []
+
+
 def test_ids_are_stable_across_runs(tmp_path: Path) -> None:
     path = _module(tmp_path, "m", CLAMP)
     spec = tmp_path / "m.spec.md"

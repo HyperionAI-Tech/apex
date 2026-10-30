@@ -36,14 +36,15 @@ code, never approximated.
 - `for x in xs:` and `for i in range(a, b):` without `break`, `continue` or `return` inside.
   Loops become `List.foldl` over the variables they update.
 - `xs.append(v)` on a local list.
-- Recursion, if Lean can see it terminates.
+- Not recursion: it is translated, but Lean's automatic termination check rejects `n - 1` on an
+  int and `xs[1:]` alike (`NONTERMINATION`). Use a `for` loop.
 
 ## Common gaps and fixes
 
 | Reason code | Typical cause | Fix |
 |---|---|---|
 | `UNSUPPORTED_CONSTRUCT` | `xs[i]`, truthiness (`if xs:`), falling off the end, `assert` after other code, `raise` | Iterate instead of indexing; compare explicitly (`len(xs) == 0`); return on every path or return `Optional` |
-| `NONTERMINATION` | `while` loops, recursion Lean cannot see shrinking | `for` over a `range`, or recurse on `n - 1` with a base case |
+| `NONTERMINATION` | `while` loops, any recursion | `for` over a list or a `range`, with an accumulator |
 | `FLOAT_SEMANTICS` | `/`, float literals, `math.*` | Integer or fixed-point arithmetic |
 | `IMPURE_IO` | `print`, files, globals, randomness, mutating arguments | Verify the pure core Apex extracts, or move the side effects out |
 | `NEEDS_CONCURRENCY_TOOL` | threads, asyncio | Model the protocol in TLA+; verify the pure step function here |

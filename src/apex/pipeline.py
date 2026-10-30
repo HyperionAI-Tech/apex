@@ -53,7 +53,7 @@ from apex.intent.tests import mine_tests
 from apex.lean.compiler import LeanMessage, TheoremOutcome, compile_and_audit, run_lean
 from apex.lean.project import LeanProject
 from apex.prove.tactics import probe
-from apex.theorems.draft import DraftError, draft_property
+from apex.theorems.draft import DraftError, draft_property, formal_preconditions
 from apex.theorems.review import ReviewStore
 from apex.theorems.spec import Spec, SpecDecl, SpecError, parse_spec, render_decl
 from apex.translate.lean import FunctionSig, LeanModel, TranslationError, signature, translate
@@ -253,9 +253,9 @@ def _purity_gap(purity: PurityResult) -> Gap:
 
 
 def _translation_gap(e: TranslationError) -> Gap:
-    steps = ["Rewrite the construct using the supported subset (see LEAN_SUBSET.md)."]
+    steps = ["Rewrite the construct using the supported subset (see docs/LIMITS.md)."]
     if e.reason_code is ReasonCode.NONTERMINATION:
-        steps = ["Use a for loop over a list or range(), or recursion on a decreasing argument."]
+        steps = ["Use a for loop over a list or range(); recursion is not supported yet."]
     elif e.reason_code is ReasonCode.FLOAT_SEMANTICS:
         steps = ["Use integers (e.g. fixed-point) for exact arithmetic, or a float-aware tool."]
     return Gap(
@@ -302,11 +302,6 @@ def _analyze(target: str, ws: "Workspace | None" = None) -> _Analysis:
         if ws.intent_path(info).is_file():
             previous = IntentModel.model_validate_json(ws.intent_path(info).read_text())
 
-    def load_helpers() -> dict:
-        from apex.fidelity.bridge import load_module
-
-        return vars(load_module(info))
-
     intent, examples = fuse(
         info,
         purity,
@@ -314,7 +309,6 @@ def _analyze(target: str, ws: "Workspace | None" = None) -> _Analysis:
         sig.returns if sig else None,
         mined,
         previous=previous,
-        load_helpers=load_helpers,
     )
     if ws is not None:
         ws.intent_path(info).parent.mkdir(parents=True, exist_ok=True)
@@ -823,7 +817,14 @@ def _verify_function(
     # Stage 6: a proof only stands if the model it is about matches the real Python.
     if any(p.proof for p in compiled.values()):
         try:
-            result.fidelity = check_fidelity(info, model, project=project, n=fidelity_n)
+            pres = formal_preconditions(
+                a.intent.preconditions,
+                [n for n, _ in model.target_sig.params],
+                module_functions(info),
+            )
+            result.fidelity = check_fidelity(
+                info, model, project=project, n=fidelity_n, preconditions=pres
+            )
         except FidelityError as e:
             raise ApexToolError(f"fidelity check could not run: {e}") from e
         if not result.fidelity.agree:

@@ -112,6 +112,11 @@ def test_callees_are_translated_first(tmp_path: Path) -> None:
 def test_lean_keywords_are_escaped(tmp_path: Path) -> None:
     out = model(tmp_path, "def f(fun: int) -> int:\n    return fun\n")
     assert "(«fun» : Int)" in out
+    # A function name too: `def repeat(...)` produced a model Lean could not parse.
+    out = model(tmp_path, "def repeat(using: int) -> int:\n    return using\n", "repeat")
+    assert "def «repeat» («using» : Int)" in out
+    m = translate(load_function(f"{tmp_path / 'm.py'}::repeat"))
+    assert m.def_names == ["«repeat»"] and m.target_sig.params[0][0] == "using"
 
 
 @pytest.mark.parametrize(
@@ -160,6 +165,25 @@ def test_purity_classifier(tmp_path: Path) -> None:
 
         def clean(x: int) -> int:
             return x + 1
+
+        G = [0]
+
+        def builds(xs: list[int]) -> list[int]:
+            out: list[int] = []
+            for x in xs:
+                out.append(x)
+                out[-1] = x + 1
+            return out
+
+        def aliases_arg(xs: list[int]) -> list[int]:
+            r = xs
+            r[0] = 1
+            return r
+
+        def aliases_global(x: int) -> int:
+            out = G
+            out[0] = x
+            return x
     """,
     )
 
@@ -173,6 +197,11 @@ def test_purity_classifier(tmp_path: Path) -> None:
     assert cls("mutates").class_ == "impure"
     assert cls("rolls").findings[0].reason_code is ReasonCode.IMPURE_IO
     assert cls("clean").class_ == "pure"
+    # Writing into a container built in this call is invisible to the caller; through an alias
+    # of an argument or a global it is not.
+    assert cls("builds").class_ == "pure"
+    assert cls("aliases_arg").class_ == "impure"
+    assert cls("aliases_global").class_ == "impure"
 
 
 def test_function_hash_covers_callees(tmp_path: Path) -> None:

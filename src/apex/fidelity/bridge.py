@@ -9,18 +9,19 @@ discards the proof as `fidelity_failed`. This is conservative on purpose:
 - a Python function that mutates its arguments disagrees (the model has no side effects).
 
 Running out of resources is not a disagreement: an input on which the Python hits its recursion
-limit (Lean's model has no call stack) or runs past CALL_TIMEOUT_S is left out and counted in
+limit (Lean's model has no call stack) or runs past BRIDGE_CALL_S is left out and counted in
 `skipped`. Inputs run smallest first, and after MAX_SLOW slow calls the larger rest are skipped
 too; the check fails if nothing is left to compare.
 """
 
 import ast
+import contextlib
 import copy
 import importlib.util
 import sys
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,23 @@ CALL_TIMEOUT_S = 0.5
 otherwise never return)."""
 MAX_SLOW = 3
 """Slow calls after which a search stops calling the function."""
+BRIDGE_CALL_S = 0.02
+"""Budget per call in the fidelity check, where every kept input is also evaluated by Lean's
+`#eval`, which is much slower than CPython on big lists: an input CPython needs more than this
+for is skipped, so the Lean side stays within its time budget."""
 RESOURCE_LIMITS = (RECURSION_LIMIT, TIMED_OUT)
+
+
+@contextlib.contextmanager
+def unbounded_int_digits() -> Iterator[None]:
+    """Lift Python's 4300-digit cap on int <-> str conversion (a guard against parsing untrusted
+    text) while Apex reads Lean's output and prints values: fact(3000) is 9131 digits."""
+    previous = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(0)
+    try:
+        yield
+    finally:
+        sys.set_int_max_str_digits(previous)
 
 
 class CallTimeout(BaseException):
@@ -85,8 +102,17 @@ class FidelityError(RuntimeError):
     """The bridge itself could not run (not a disagreement). Maps to a tool error."""
 
 
+MIXED_INTS = st.one_of(
+    st.integers(min_value=-16, max_value=16),
+    st.integers(min_value=-(2**16), max_value=2**16),
+    st.integers(min_value=-(2**40), max_value=2**40),
+)
+"""Small values exercise the logic (loop counts, run lengths); large ones probe overflow-style
+assumptions. Drawing every int up to 2**40 would make most loop-bound inputs too slow to run."""
+
+
 def strategy_for(ty: PyType, ints: st.SearchStrategy[int] | None = None) -> st.SearchStrategy[Any]:
-    ints = ints if ints is not None else st.integers(min_value=-(2**40), max_value=2**40)
+    ints = ints if ints is not None else MIXED_INTS
     match ty.kind:
         case "int":
             return ints
@@ -153,10 +179,10 @@ class _PyOutcome:
     mutated: bool = False
 
 
-def _run_python(fn: Any, args: tuple[Any, ...]) -> _PyOutcome:
+def _run_python(fn: Any, args: tuple[Any, ...], timeout_s: float = BRIDGE_CALL_S) -> _PyOutcome:
     call_args = copy.deepcopy(args)
     try:
-        value = call_user(fn, call_args)
+        value = call_user(fn, call_args, timeout_s)
     except CallTimeout:
         return _PyOutcome(error=TIMED_OUT)
     except RecursionError:
@@ -225,6 +251,7 @@ def run_lean_model(
         raise FidelityError(f"unparseable Lean output: {e}") from e
 
 
+@unbounded_int_digits()
 def check_fidelity(
     info: FunctionInfo,
     model: LeanModel,
@@ -232,15 +259,19 @@ def check_fidelity(
     project: LeanProject | None = None,
     n: int = DEFAULT_EXAMPLES,
     timeout_s: float = 300.0,
+    preconditions: list[ast.expr] | None = None,
 ) -> FidelitySummary:
+    """`preconditions`: the Intent Model's formal preconditions (`pre:`, `Requires:`), which every
+    drafted statement assumes; they bound the comparison exactly like leading asserts do."""
     project = project or LeanProject.locate()
     sig = model.target_sig
     names = [p for p, _ in sig.params]
     module = load_module(info)
     fn = getattr(module, info.qualname)
     # The model leaves out leading asserts (preconditions), so it is compared only where they
-    # hold: where they fail, Python returns nothing a theorem could be wrong about.
-    pres = [a.test for a in leading_asserts(info.node)]
+    # and the stated preconditions hold: where they fail, the function promises nothing (Python
+    # may raise, as `a // b` does at b == 0), so there is no result a theorem could be wrong about.
+    pres = [a.test for a in leading_asserts(info.node)] + list(preconditions or [])
 
     def accept(args: tuple[Any, ...]) -> bool:
         env = dict(zip(names, args, strict=True))
@@ -251,13 +282,13 @@ def check_fidelity(
 
     inputs = generate_inputs([t for _, t in sig.params], n, accept if pres else None)
     if not inputs:
-        raise FidelityError("no generated input satisfies the function's leading asserts")
+        raise FidelityError("no generated input satisfies the function's preconditions")
     generated = len(inputs)
     inputs, py = _run_smallest_first(fn, inputs)
     if not inputs:
         raise FidelityError(
             "the Python exceeded its recursion limit or ran past "
-            f"{CALL_TIMEOUT_S}s on every generated input"
+            f"{BRIDGE_CALL_S}s on every generated input"
         )
     skipped = generated - len(inputs)
     lean = run_lean_model(model, inputs, project, timeout_s)

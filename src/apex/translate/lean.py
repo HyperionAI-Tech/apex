@@ -2,8 +2,10 @@
 
 Supported: integer arithmetic (with Python's floor `//` and `%`), comparisons, booleans,
 `if`/`elif`/`else`, conditional expressions, lists, fixed-size tuples, `Optional` returns,
-recursion between module functions, simple `for` loops (rewritten as `foldl`), list
-comprehensions, constant slices, and `len`/`abs`/`min`/`max`/`sum`.
+calls between module functions, simple `for` loops (rewritten as `foldl`), list
+comprehensions, constant slices, and `len`/`abs`/`min`/`max`/`sum`. Recursion is translated, but
+Lean's automatic termination check rejects it in practice (`n - 1` on an Int, `xs[1:]`), which
+surfaces as NONTERMINATION.
 
 Leading `assert` statements are preconditions, not code: the model leaves them out, theorems
 drafted from the Intent Model assume them, and the fidelity check only compares inputs that pass
@@ -105,6 +107,24 @@ LEAN_KEYWORDS = frozenset(
         "omega",
         "simp",
         "decide",
+        # Found by compiling `def <name>` for every Python keyword, builtin and common name
+        # against the pinned toolchain, with and without Mathlib (`repeat` used to break the
+        # model of `def repeat(...)`).
+        "elab",
+        "elab_rules",
+        "export",
+        "hiding",
+        "include",
+        "initialize",
+        "macro_rules",
+        "nonrec",
+        "omit",
+        "renaming",
+        "repeat",
+        "says",  # Mathlib's `says` combinator: reserved only once Mathlib is imported
+        "show_term",
+        "using",
+        "while",
     }
 )
 
@@ -152,7 +172,9 @@ class LeanModel:
 
     @property
     def target_sig(self) -> FunctionSig:
-        return self.sigs[self.def_names[-1]]
+        # `sigs` is keyed by Python name in definition order, target last; `def_names` holds Lean
+        # identifiers, which differ for escaped names such as «repeat».
+        return list(self.sigs.values())[-1]
 
 
 def lean_ident(name: str) -> str:
@@ -663,8 +685,7 @@ class _FunctionTranslator:
                 return self._for(s, env, rest, tail)
             case ast.While():
                 raise TranslationError(
-                    "while loops may not terminate; rewrite as a for loop over a range or as "
-                    "recursion on a decreasing argument",
+                    "while loops may not terminate; rewrite as a for loop over a list or a range",
                     s,
                     ReasonCode.NONTERMINATION,
                 )

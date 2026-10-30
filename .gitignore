@@ -6,3 +6,4 @@ __pycache__/
 dist/
 .apex/last_report.json
 lean/.lake/
+/.apex/

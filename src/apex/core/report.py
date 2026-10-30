@@ -92,7 +92,7 @@ class FidelitySummary(_Strict):
     inputs_checked: int
     mismatch: Counterexample | None = None
     domain: str | None = None
-    """The function's leading asserts, when inputs were restricted to where they hold."""
+    """The preconditions (leading asserts and stated `pre:`) inputs were restricted to, if any."""
     skipped: int = 0
     """Generated inputs left out because the Python hit a resource limit: its recursion limit
     (stack depth is not modelled) or the per-call time budget."""

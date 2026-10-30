@@ -52,6 +52,7 @@ from apex.fidelity.bridge import (
     call_user,
     load_module,
     strategy_for,
+    unbounded_int_digits,
 )
 from apex.intent.candidates import Example
 from apex.intent.fuse import module_functions
@@ -61,11 +62,6 @@ from apex.translate.literals import normalize
 HYPOTHESIS_EXAMPLES = 300
 # Mostly small integers, where boundary bugs live, and some large ones. Unbounded integers would
 # let a correct but loop-heavy function (a `while` up to n) stall the search.
-_INTS = st.one_of(
-    st.integers(min_value=-16, max_value=16),
-    st.integers(min_value=-(2**16), max_value=2**16),
-    st.integers(min_value=-(2**40), max_value=2**40),
-)
 _CROSSHAIR_LINE = re.compile(
     r":\d+: error: (?P<err>.*?) when calling (?P<call>apex_check_\w+\(.*\))"
 )
@@ -197,7 +193,7 @@ def _hypothesis(
         deadline=None,
         suppress_health_check=SUPPRESSED_HEALTH_CHECKS,
     )
-    @given(st.tuples(*(strategy_for(t, _INTS) for _, t in params)))
+    @given(st.tuples(*(strategy_for(t) for _, t in params)))
     def search(args: tuple[Any, ...]) -> None:
         cx = _violation(c, fn, names, args, ns, "hypothesis")
         if cx is not None:
@@ -296,6 +292,7 @@ def _crosshair(
         c.found = _violation(c, fn, names, args, ns, "crosshair")
 
 
+@unbounded_int_digits()
 def refute(
     info: FunctionInfo,
     intent: IntentModel,

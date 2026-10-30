@@ -101,6 +101,7 @@ def _root_name(node: ast.expr) -> str | None:
 class _Visitor(ast.NodeVisitor):
     def __init__(self, fn: ast.FunctionDef, module_aliases: dict[str, str]) -> None:
         self.params = {a.arg for a in fn.args.args + fn.args.kwonlyargs + fn.args.posonlyargs}
+        self.fresh = _fresh_locals(fn, self.params)
         self.aliases = module_aliases
         self.findings: list[PurityFinding] = []
         self._stmt_level_call: ast.Call | None = None
@@ -145,7 +146,7 @@ class _Visitor(ast.NodeVisitor):
             root = _root_name(target.value)
             if root in self.params:
                 self.add(ReasonCode.IMPURE_IO, f"mutates its argument `{root}` in place", target)
-            elif root is not None and root not in self.params:
+            elif root is not None and root not in self.fresh:
                 self.add(ReasonCode.IMPURE_IO, f"mutates `{ast.unparse(target)}`", target)
 
     def visit_Assign(self, node: ast.Assign) -> None:
@@ -188,6 +189,47 @@ class _Visitor(ast.NodeVisitor):
             elif root == "self":
                 self.add(ReasonCode.UNSUPPORTED_CONSTRUCT, "uses object state via `self`", node)
         self.generic_visit(node)
+
+
+_FRESH = (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.ListComp, ast.SetComp, ast.DictComp)
+
+
+def _fresh_locals(fn: ast.FunctionDef, params: set[str]) -> set[str]:
+    """Locals that only ever hold a container built in this call (`out = []`): writing into one
+    is invisible to the caller. A name bound any other way (`out = xs`, a loop target, `global`)
+    might alias outside state, so it is not fresh."""
+    fresh: set[str] = set()
+    other: set[str] = set(params)
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Global | ast.Nonlocal):
+            other.update(node.names)
+        elif isinstance(node, ast.Assign | ast.AnnAssign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in targets:
+                for name in _bound(t):
+                    is_fresh = isinstance(t, ast.Name) and isinstance(node.value, _FRESH)
+                    (fresh if is_fresh else other).add(name)
+        elif isinstance(node, ast.For | ast.With | ast.NamedExpr | ast.AugAssign):
+            targets = (
+                [i.optional_vars for i in node.items if i.optional_vars]
+                if isinstance(node, ast.With)
+                else [node.target]
+            )
+            for t in targets:
+                other.update(_bound(t))
+    return fresh - other
+
+
+def _bound(target: ast.expr) -> list[str]:
+    """Names a binding target rebinds (`out[i] = v` and `obj.x = v` rebind nothing)."""
+    match target:
+        case ast.Name(id=name):
+            return [name]
+        case ast.Tuple(elts=elts) | ast.List(elts=elts):
+            return [n for e in elts for n in _bound(e)]
+        case ast.Starred(value=value):
+            return _bound(value)
+    return []
 
 
 def _module_aliases(tree: ast.Module) -> dict[str, str]:

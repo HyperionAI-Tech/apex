@@ -333,217 +333,217 @@ target = "numx.py::fact_loop"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/fact_loop.lean"
-expected = {}
+expected = { P1 = "holds", E1 = "proven", E2 = "proven", R1 = "holds", R2 = "proven", R3 = "holds" }
 
 [[case]]
 target = "numx.py::fib"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/fib.lean"
-expected = {}
+expected = { P1 = "holds", E1 = "proven", E2 = "proven", R1 = "proven", R2 = "proven", R3 = "holds" }
 
 [[case]]
 target = "numx.py::is_even"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/is_even.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "holds", R2 = "holds" }
 
 [[case]]
 target = "numx.py::median3"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/median3.lean"
-expected = {}
+expected = { P1 = "proven", P2 = "proven", E1 = "proven", R1 = "proven", R2 = "proven", R3 = "proven" }
 
 [[case]]
 target = "numx.py::div_ceil"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/div_ceil.lean"
-expected = {}
+expected = { P1 = "holds", E1 = "proven", E2 = "proven", R1 = "holds" }
 
 [[case]]
 target = "numx.py::saturating_sub"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/saturating_sub.lean"
-expected = {}
+expected = { P1 = "proven", P2 = "holds", P3 = "holds", R1 = "proven", R2 = "proven", R3 = "proven" }
 
 [[case]]
 target = "numx.py::round_down"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/round_down.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "holds", R2 = "holds" }
 
 [[case]]
 target = "numx.py::triangular"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/triangular.lean"
-expected = {}
+expected = { P1 = "holds", R1 = "holds" }
 
 [[case]]
 target = "numx.py::pow_loop"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/pow_loop.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "proven", R2 = "holds", R3 = "holds" }
 
 [[case]]
 target = "numx.py::between"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/between.lean"
-expected = {}
+expected = { P1 = "holds", E1 = "proven", R1 = "proven" }
 
 [[case]]
 target = "numx.py::exactly_one"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/exactly_one.lean"
-expected = {}
+expected = { P1 = "holds", R1 = "holds" }
 
 [[case]]
 target = "numx.py::majority3"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/majority3.lean"
-expected = {}
+expected = { P1 = "proven", P2 = "holds", R1 = "proven", R2 = "holds", R3 = "holds" }
 
 [[case]]
 target = "algos.py::is_sorted"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/is_sorted.lean"
-expected = {}
+expected = { E1 = "proven", E2 = "proven", E3 = "proven", R1 = "holds" }
 
 [[case]]
 target = "algos.py::insert_sorted"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/insert_sorted.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "holds", R2 = "holds", R3 = "holds" }
 
 [[case]]
 target = "algos.py::insertion_sort"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/insertion_sort.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "holds", R2 = "holds", R3 = "holds" }
 
 [[case]]
 target = "algos.py::reverse_list"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/reverse_list.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "proven" }
 
 [[case]]
 target = "algos.py::rle_decode"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/rle_decode.lean"
-expected = {}
+expected = { P1 = "holds", E1 = "proven", R1 = "holds" }
 
 [[case]]
 target = "algos.py::rle_encode"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/rle_encode.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "holds", R2 = "holds" }
 
 [[case]]
 target = "algos.py::balanced"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/balanced.lean"
-expected = {}
+expected = { E1 = "proven", E2 = "proven", E3 = "proven", R1 = "proven", R2 = "holds" }
 
 [[case]]
 target = "algos.py::prefix_sums"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/prefix_sums.lean"
-expected = {}
+expected = { P1 = "holds", E1 = "proven", R1 = "holds", R2 = "holds" }
 
 [[case]]
 target = "algos.py::dedup_adjacent"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/dedup_adjacent.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", E1 = "proven", R1 = "holds", R2 = "holds" }
 
 [[case]]
 target = "algos.py::evens"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/evens.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", R1 = "holds", R2 = "holds" }
 
 [[case]]
 target = "algos.py::count_matches"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/count_matches.lean"
-expected = {}
+expected = { P1 = "holds", R1 = "holds" }
 
 [[case]]
 target = "algos.py::last_or"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/last_or.lean"
-expected = {}
+expected = { P1 = "proven", P2 = "holds", R1 = "proven", R2 = "proven" }
 
 [[case]]
 target = "algos.py::repeat"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/repeat.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", R1 = "holds" }
 
 [[case]]
 target = "algos.py::all_positive"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/all_positive.lean"
-expected = {}
+expected = { P1 = "holds", R1 = "holds" }
 
 [[case]]
 target = "algos.py::negate_all"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/negate_all.lean"
-expected = {}
+expected = { P1 = "proven", P2 = "holds", R1 = "proven", R2 = "proven" }
 
 [[case]]
 target = "algos.py::sort2"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/sort2.lean"
-expected = {}
+expected = { P1 = "proven", P2 = "proven", E1 = "proven", R1 = "proven", R2 = "proven" }
 
 [[case]]
 target = "algos.py::max_or"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/max_or.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", P3 = "proven", R1 = "holds", R2 = "holds", R3 = "proven" }
 
 [[case]]
 target = "algos.py::clamp_all"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/clamp_all.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", R1 = "proven", R2 = "proven" }
 
 [[case]]
 target = "algos.py::count_in_range"
 category = "known_good"
 inputs = ["docstring"]
 reference = "specs/count_in_range.lean"
-expected = {}
+expected = { P1 = "holds", P2 = "holds", R1 = "holds" }
 # ---- M5 corpus expansion: planted bugs ----
 
 # range(1, n): (n-1)! is still >= 1, and 0! is still 1.
@@ -809,11 +809,12 @@ inputs = ["english"]
 reason = "UNSUPPORTED_CONSTRUCT"
 expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
 
+# Two gaps (a `raise` and a `while`); the while loop is the one reported.
 [[case]]
 target = "ai_claude.py::digit_sum"
 category = "ai_generated"
 inputs = ["english"]
-reason = "UNSUPPORTED_CONSTRUCT"
+reason = "NONTERMINATION"
 expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
 
 [[case]]
@@ -837,11 +838,12 @@ inputs = ["english"]
 reason = "UNSUPPORTED_CONSTRUCT"
 expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
 
+# `i = j = 0` (chained assignment) comes before the while loop.
 [[case]]
 target = "ai_codex.py::merge_sorted"
 category = "ai_generated"
 inputs = ["english"]
-reason = "NONTERMINATION"
+reason = "UNSUPPORTED_CONSTRUCT"
 expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
 
 [[case]]
