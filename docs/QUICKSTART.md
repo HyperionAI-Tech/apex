@@ -133,6 +133,41 @@ shows Apex's table verbatim, and asks you to approve statements yourself.
   with: { sarif_file: apex.sarif }
 ```
 
+## 9. Code Lean cannot model
+
+A `while` loop, indexing or an early `return` puts a function outside the Lean subset
+(`out_of_scope`). Refutation still runs on it. A fuzzing campaign goes further and records what
+it did:
+
+```sh
+apex fuzz loops.py::isqrt --seconds 10
+```
+
+```
+  no counterexample  P1  (9,425 executions, hypothesis, 10s)
+```
+
+`apex verify` then reports P1 as `fuzzed`: evidence, not proof (exit 2).
+`--engine atheris` (the `fuzz` extra) runs coverage-guided libFuzzer instead.
+
+For concurrent code, Apex checks a TLA+ spec of it. It needs Java and `apex init --tla`:
+
+```sh
+apex tla draft workers.py::racy_worker     # or write .apex/tla/workers/racy_worker/ yourself
+apex review workers.py::racy_worker --approve T_NoLostUpdate,T_NeverAhead
+apex tla check workers.py::racy_worker
+```
+
+```
+  100 runs, 4 distinct traces checked by TLC
+  T_NoLostUpdate  broke in run 20: reached count = 2 after 5 observed states
+  T_NeverAhead  no violation in 201 states; runs conform
+```
+
+The unlocked read-modify-write loses updates. TLC finds that in the spec, and a real run shows
+it, so `T_NoLostUpdate` is `refuted`. `T_NeverAhead` is `model_checked`: no violation within the
+bounds, and the real runs match the spec.
+
 ## Next
 
 - [What Apex cannot prove](LIMITS.md): read it before trusting a verdict.

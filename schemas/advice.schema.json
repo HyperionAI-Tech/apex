@@ -72,7 +72,9 @@
         "fidelity_failed",
         "contradiction",
         "unproven",
-        "out_of_scope"
+        "out_of_scope",
+        "fuzzed",
+        "model_checked"
       ],
       "title": "Verdict",
       "type": "string"

@@ -165,6 +165,17 @@ def run_doctor(cwd: Path | None = None, *, warm_repl: bool = False) -> DoctorRep
             )
         )
 
+    present = importlib.util.find_spec("atheris") is not None
+    checks.append(
+        Check(
+            name="atheris",
+            status="ok" if present else "warn",
+            detail="installed (coverage-guided fuzzing)"
+            if present
+            else "not installed; optional (`apex fuzz --engine atheris`)",
+        )
+    )
+    checks.append(_tla_check())
     checks.append(_llm_check(cwd))
 
     skills = _skill_locations(cwd)
@@ -184,6 +195,17 @@ def run_doctor(cwd: Path | None = None, *, warm_repl: bool = False) -> DoctorRep
     return DoctorReport(
         apex_version=__version__, healthy=all(c.status != "fail" for c in checks), checks=checks
     )
+
+
+def _tla_check() -> Check:
+    """TLC for concurrent code. Optional: only `apex tla` needs it."""
+    from apex.tla.tlc import TLA_VERSION, TlaUnavailable, tools
+
+    try:
+        _, jar = tools()
+    except TlaUnavailable as e:
+        return Check(name="tla_tools", status="warn", detail=f"optional (apex tla): {e}")
+    return Check(name="tla_tools", status="ok", detail=f"tla2tools.jar v{TLA_VERSION} at {jar}")
 
 
 def _llm_check(cwd: Path) -> Check:

@@ -14,9 +14,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - run: uv sync --all-extras
+      - run: uv sync --extra repl --extra anthropic --extra openai
       - run: uv run ruff check .
       - run: uv run pyright
+      - name: Install the pinned TLA+ tools (Java is preinstalled on the runner)
+        run: uv run python -c "from apex.tla.tlc import install, tools; install(); tools()"
       - run: uv run pytest -m "not lean and not install"
       - name: Published JSON Schemas match the contracts
         run: |
@@ -38,6 +40,18 @@ jobs:
           python-version: "3.12"
       - run: uv sync
       - run: uv run pytest -m install
+
+  fuzz:
+    # The optional coverage-guided engine: atheris builds against the runner's clang.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra fuzz
+      - run: uv run pytest tests/test_fuzz_tla.py -k atheris
 
   skill:
     # The skill never drifts from the Agent Skills spec: validate on every commit.
@@ -74,9 +88,11 @@ jobs:
         run: |
           lake exe cache get
           lake build Apex
-      - run: uv sync --all-extras
+      - run: uv sync --extra repl --extra anthropic --extra openai
+      - name: Install the pinned TLA+ tools (Java is preinstalled on the runner)
+        run: uv run python -c "from apex.tla.tlc import install, tools; install(); tools()"
       - run: uv run pytest -m lean
-      - name: Eval corpus scoreboard (fails on any false proven)
+      - name: Eval corpus scoreboard (fails on any false proven or false evidence)
         run: uv run python evals/run.py
 
   smoke:
@@ -103,7 +119,7 @@ jobs:
             ~/.elan/toolchains
             lean/.lake
           key: lean-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json', 'lean/lakefile.toml', 'lean/Apex/**') }}
-      - run: uv sync --all-extras
+      - run: uv sync --extra repl --extra anthropic --extra openai
       - run: uv run apex init --yes
       - name: Install the harness CLI
         run: |

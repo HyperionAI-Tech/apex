@@ -54,7 +54,18 @@ def _first_line(p: dict) -> str:
         return "approved and proven"
     if v == "proven_unreviewed":
         return f"proven; statement not approved (user runs `apex review ... --approve {p['id']}`)"
+    if v == "fuzzed" and (z := p.get("fuzz")):
+        return f"no counterexample in {z['executions']} executions ({z['engine']}); not a proof"
+    if v == "model_checked" and (m := p.get("model_check")):
+        return (
+            f"TLC: {m.get('distinct_states', 0)} states, bounds {m.get('constants') or {}}; "
+            f"{m.get('traces_checked', 0)} recorded runs conform; not a proof"
+        )
+    if v == "fidelity_failed" and (m := p.get("model_check")) and m.get("rejected_trace"):
+        return "a real run is not a behavior of the TLA+ spec"
     if cx := p.get("counterexample"):
+        if cx.get("found_by") == "stress":
+            return f"{cx.get('expected')} broke in a real run: {cx.get('actual')}"
         args = ", ".join(f"{k}={x}" for k, x in cx["inputs"].items())
         return f"input ({args}): expected {cx.get('expected')}; {cx.get('actual')}"
     for err in p.get("lean_errors") or []:

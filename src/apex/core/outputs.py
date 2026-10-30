@@ -29,8 +29,12 @@ class InitResult(BaseModel):
 
 class ReviewEntry(BaseModel):
     id: str
+    kind: Literal["lean", "tla"] = "lean"
     english: str | None = None
-    lean: str
+    lean: str | None = None
+    """The Lean statement (kind `lean`)."""
+    tla: str | None = None
+    """The invariant and its bundle (kind `tla`); approving it approves the whole bundle."""
     status: Literal["approved", "pending", "lapsed"]
     reviewer: str | None = None
 
@@ -46,3 +50,12 @@ class ReviewStatus(BaseModel):
 
 class SchemaExport(BaseModel):
     written: list[str]
+
+
+class TlaDraftResult(BaseModel):
+    """`apex tla draft --json`: where the drafted bundle was written (pending review)."""
+
+    schema_version: Literal["1"] = "1"
+    target: str
+    bundle: str
+    status: Literal["pending review"] = "pending review"

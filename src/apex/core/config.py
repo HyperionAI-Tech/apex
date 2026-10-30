@@ -41,6 +41,16 @@ class ApexConfig(BaseModel):
     refute_budget_s: float = Field(
         default=10, gt=0, description="CrossHair time per property, on the real Python."
     )
+    fuzz_budget_s: float = Field(
+        default=30,
+        gt=0,
+        description="Per property: length of a fuzzing campaign (`apex fuzz`; `apex check "
+        "--fuzz` overrides it).",
+    )
+    fuzz_engine: Literal["hypothesis", "atheris"] = Field(
+        default="hypothesis",
+        description="hypothesis (pure Python) or atheris (coverage-guided; the `fuzz` extra).",
+    )
     confidence_floor: float = Field(
         default=0.6, ge=0, le=1, description="Below this, a property is flagged SPEC_AMBIGUOUS."
     )

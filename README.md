@@ -8,21 +8,19 @@ why, and what would have to change.
 **New here? Start with the [quickstart](docs/QUICKSTART.md), and read
 [what Apex cannot prove](docs/LIMITS.md) before trusting a verdict.**
 
-**Status: Phase 5 (hardening).** The eval corpus has the handoff's composition: 121 cases,
-including ten functions written by Claude Code and Codex from one-line prompts and left
-unedited. False `proven` is 0 and all 121 cases match their expected verdicts. Growing the corpus
-surfaced real bugs, now fixed:
+**Status: Phase 6 (beyond Lean: fuzzing and TLA+).** For what Lean cannot model, Apex now
+gathers evidence without weakening `proven`, which still means a Lean proof:
 
-- calls into user code that hang (a loop over `range(2**40)`) or hit the recursion limit;
-- results past Python's 4300-digit integer limit;
-- a fidelity check that ignored stated preconditions;
-- a conflict check that ran the code under test;
-- pure code labelled impure;
-- Lean reserved words (`repeat`) breaking the model.
+- **Fuzzing campaigns.** These cover pure code outside the Lean subset, or properties Lean left
+  open, and give `fuzzed` when no counterexample turns up.
+- **TLA+ for concurrent code.**
+  - TLC checks a spec, and Apex checks recorded runs of the real code against that spec.
+  - A clean check gives `model_checked`, and an invariant broken in a real run is `refuted`.
+  - A run the spec does not allow is `fidelity_failed`.
 
-Phase 4 (MCP server and Agent Skill) and Phase 3 (`apex check`, model proofs, SARIF) are
-underneath. Next, Phase 6: TLA+ model checking and fuzzing for what Lean cannot model, as new
-non-proof verdicts.
+Both new verdicts are gaps (exit 2), never passes. Phase 5 (hardening: the eval corpus, false
+`proven` 0), Phase 4 (MCP server and Agent Skill) and Phase 3 (`apex check`, model proofs,
+SARIF) are underneath.
 
 ## Quick tour
 
@@ -58,12 +56,50 @@ with the real Python on 200 Hypothesis-generated inputs. Without approval the be
 |---|---|
 | 0 | every approved property is proven |
 | 1 | any `refuted`, `fidelity_failed` or `contradiction` (or a gap verdict listed in `fail_on`) |
-| 2 | gaps only: `unproven`, `out_of_scope`, `proven_unreviewed`, `proven_conditional` |
+| 2 | gaps only: `unproven`, `out_of_scope`, `proven_unreviewed`, `proven_conditional`, `fuzzed`, `model_checked` |
 | 3 | tool error: Lean missing, bad config or target, a usage error, a crash, `--timeout` exceeded |
 
 Failures always win over gaps. A function that is out of scope, or has no intent at all, counts
 as a gap, so exit 0 is never vacuous. Usage errors and crashes exit 3, never Click's 2 or
 Python's 1, which CI would read as "gaps" and "refuted".
+
+## Beyond Lean: fuzzing and TLA+
+
+Lean is still the only thing that can say `proven`. For what it cannot model, Apex gathers
+evidence and labels it as such.
+
+```sh
+apex fuzz loops.py::isqrt --seconds 30         # a recorded campaign per property
+apex fuzz loops.py::isqrt --engine atheris     # coverage-guided (the `fuzz` extra)
+apex check src/ --fuzz 10                      # fuzz whatever Lean leaves open
+apex init --tla                                # pinned TLA+ tools (needs Java 11+)
+apex tla draft workers.py::worker              # a model drafts Spec.tla, Spec.cfg, harness.py
+apex review workers.py::worker --approve T_NoLostUpdate   # a person approves the bundle
+apex tla check workers.py::worker              # TLC, then the real runs against the spec
+```
+
+- **`fuzzed`.** Lean could not decide the property, because the function is out of scope or no
+  proof was found. A campaign on the real Python found no counterexample, and the evidence
+  records the engine, the number of executions, and how many inputs were skipped. A counterexample
+  is replayed in Python before it counts, so it gives `refuted`. Evidence lapses when the function
+  or the property's hint changes.
+- **`model_checked`.** The function is concurrent, so it gets a TLA+ bundle checked in two steps.
+  1. TLC explores every state of the spec within the bounds in `Spec.cfg`.
+  2. The harness runs the real code under varied thread schedules. Each distinct recorded trace
+     of shared state must be a behavior of the spec, which TLC checks too (trace validation).
+
+  What each outcome gives:
+
+  | Outcome | Verdict |
+  |---|---|
+  | An invariant breaks in a real run | `refuted` |
+  | A run the spec does not allow | `fidelity_failed` |
+  | A TLC violation that no run reproduces | `unproven`, with TLC's trace |
+
+  A TLC counterexample alone never refutes the code.
+
+Both are gaps (exit 2): useful, honest, and never a pass. See [what Apex cannot
+prove](docs/LIMITS.md#evidence-from-outside-lean) for exactly what they do not mean.
 
 ## Inside a coding agent: MCP server and Agent Skill
 
@@ -244,25 +280,27 @@ uv run python scripts/bench_repl.py   # warm REPL (~6 ms) vs cold verdict (~0.34
 The eval scoreboard reports false proven (must be 0), statement fidelity (drafted statements
 Lean shows equivalent to a hand-written reference), proof closure split by prover, refutation
 recall, conflict detection, and which intent sources produced a model. The corpus has 49
-known-good functions, 32 planted bugs, 15 spec/code conflicts, 15 out-of-scope functions and 10
-AI-generated ones. Tactics only (`--jobs 4`):
+known-good functions, 33 planted bugs, 15 spec/code conflicts, 15 out-of-scope functions, 10
+AI-generated ones and 4 concurrent ones with TLA+ bundles. Tactics only (`--jobs 4`):
 
 | | |
 |---|---|
 | false proven | 0 |
-| cases matching expectations | 121/121 |
+| false evidence (`fuzzed`/`model_checked` on a property that must fail) | 0 |
+| cases matching expectations | 126/126 |
 | statement fidelity | 56/82 drafted statements equivalent to a reference |
 | proof closure (true statements) | 113/217 (111 tactics, 2 supplied) |
 | known-good functions fully proven | 9/49 |
-| refutation recall | 49/49 |
+| refutation recall | 53/53 (one bug only a fuzzing campaign finds) |
 | conflict detection | 18/18 |
 | out-of-scope reason accuracy | 15/15 |
-| AI-generated functions inside the Lean subset | 3/10 (the other 7: refutation only) |
-| median time per function | 8.2 s |
+| AI-generated functions inside the Lean subset | 3/10 (the other 7: refuted or `fuzzed`) |
+| evidence verdicts | 20 `fuzzed`, 3 `model_checked` |
+| median time per function | 7.9 s |
 
 With `--provider claude-code --retries 2` on the earlier 46-case corpus, a model closed every
 true statement the tactics left open (82/82, 26 by the model) with false proven still 0. That
-run has not been repeated on the 121-case corpus yet.
+run has not been repeated on the larger corpus yet.
 
 Each canary declares its expected outcome in its first line. Bad canaries that cheat
 (`sorry`, `admit`, `native_decide`, a user `axiom`, a forged audit line) also assert that the
@@ -280,7 +318,9 @@ src/apex/llm/        providers: API keys (Anthropic, OpenAI) or agent CLIs (Clau
 src/apex/translate/  Python -> Lean model for the MVP subset; value <-> Lean literals
 src/apex/theorems/   spec-file parser (trust boundary), statement drafting, review store
 src/apex/prove/      tactic tiers (one Lean run), model proof search with the fixer loop
-src/apex/fidelity/   Hypothesis bridge (Lean model vs Python); refutation (CrossHair, Hypothesis)
+src/apex/fidelity/   Hypothesis bridge (Lean model vs Python); refutation (CrossHair,
+                     Hypothesis); fuzzing campaigns (Hypothesis, Atheris)
+src/apex/tla/        TLA+ bundles: pinned TLC, recorder, trace validation, drafting
 src/apex/lean/       pinned project, guard, cold verdict compiler + axiom audit, REPL pool
 src/apex/report/     Rich, Markdown and SARIF renderers; explain / suggest
 src/apex/pipeline.py the deterministic verbs every surface calls, and `check` (engine mode)

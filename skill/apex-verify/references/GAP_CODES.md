@@ -14,4 +14,6 @@ them for the last report.
 | `NO_STATEMENT` | A property has a hint but no theorem yet | `apex scaffold <target>` appends the drafted theorem |
 | `SPEC_AMBIGUOUS` | Text-only intent, confidence below the floor, or no intent at all | Write a formal hint (INTENT.md) and `apex intent submit` |
 | `SPEC_CONFLICT` | Intent sources disagree | Ask the user which source is right; fix the other |
-| `NEEDS_CONCURRENCY_TOOL` | Threads or processes | Model the protocol in TLA+; verify the pure step function here |
+| `NEEDS_CONCURRENCY_TOOL` | Threads, shared state, locks | Write a TLA+ bundle (TLA.md), ask the user to approve it, `apex tla check <target>` |
+| `SPEC_VIOLATION_NOT_REPRODUCED` | TLC broke an invariant in the spec; no real run showed it | Read TLC's trace (`--json`): add a `check_<Name>` to the harness or more runs if the code can take it; tighten the spec if it cannot |
+| `MODEL_CHECK_FAILED` | TLC could not check the bundle (parse error, budget), or the runs could not be checked against it | Fix the bundle; `apex tla check` again |

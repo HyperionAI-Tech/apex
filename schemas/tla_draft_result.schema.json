@@ -1,0 +1,31 @@
+{
+  "description": "`apex tla draft --json`: where the drafted bundle was written (pending review).",
+  "properties": {
+    "bundle": {
+      "title": "Bundle",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "const": "pending review",
+      "default": "pending review",
+      "title": "Status",
+      "type": "string"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "bundle"
+  ],
+  "title": "TlaDraftResult",
+  "type": "object"
+}

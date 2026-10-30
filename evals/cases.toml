@@ -288,10 +288,11 @@ expected = { P1 = "contradiction", E1 = "contradiction" }
 
 [[case]]
 target = "loops.py::isqrt"
+fuzz = 3
 category = "out_of_scope"
 inputs = ["docstring"]
 reason = "NONTERMINATION"
-expected = { P1 = "out_of_scope" }
+expected = { P1 = "fuzzed" }
 
 # Cannot be modelled in Lean, but can be refuted.
 [[case]]
@@ -734,24 +735,27 @@ expected = { P1 = "refuted" }
 
 [[case]]
 target = "loops.py::gcd"
+fuzz = 3
 category = "out_of_scope"
 inputs = ["docstring"]
 reason = "NONTERMINATION"
-expected = { P1 = "out_of_scope" }
+expected = { P1 = "fuzzed" }
 
 [[case]]
 target = "loops.py::fact_rec"
+fuzz = 3
 category = "out_of_scope"
 inputs = ["docstring"]
 reason = "NONTERMINATION"
-expected = { P1 = "out_of_scope" }
+expected = { P1 = "fuzzed" }
 
 [[case]]
 target = "loops.py::binary_search"
+fuzz = 3
 category = "out_of_scope"
 inputs = ["docstring"]
 reason = "UNSUPPORTED_CONSTRUCT"
-expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+expected = { P1 = "fuzzed", P2 = "fuzzed" }
 
 [[case]]
 target = "impure.py::read_limit"
@@ -780,7 +784,8 @@ reason = "IMPURE_IO"
 
 # ---- M5 corpus expansion: AI-generated (unedited agent output; see ai_*.py) ----
 # All ten are correct as far as a careful reading shows, so nothing may be refuted. Idiomatic
-# agent code mostly falls outside the subset: there only refutation speaks.
+# agent code mostly falls outside the subset: there refutation and fuzzing (M6) speak, and a
+# clean campaign earns `fuzzed`, never `proven`.
 
 [[case]]
 target = "ai_claude.py::clamp"
@@ -797,57 +802,105 @@ expected = { P1 = "holds" }
 
 [[case]]
 target = "ai_claude.py::dedupe_consecutive"
+fuzz = 3
 category = "ai_generated"
 inputs = ["english"]
 reason = "UNSUPPORTED_CONSTRUCT"
-expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+expected = { P1 = "fuzzed", P2 = "fuzzed" }
 
 [[case]]
 target = "ai_claude.py::is_balanced"
+fuzz = 3
 category = "ai_generated"
 inputs = ["english"]
 reason = "UNSUPPORTED_CONSTRUCT"
-expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+expected = { P1 = "fuzzed", P2 = "fuzzed" }
 
 # Two gaps (a `raise` and a `while`); the while loop is the one reported.
 [[case]]
 target = "ai_claude.py::digit_sum"
+fuzz = 3
 category = "ai_generated"
 inputs = ["english"]
 reason = "NONTERMINATION"
-expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+expected = { P1 = "fuzzed", P2 = "fuzzed" }
 
 [[case]]
 target = "ai_codex.py::count_between"
+fuzz = 3
 category = "ai_generated"
 inputs = ["english"]
 reason = "UNSUPPORTED_CONSTRUCT"
-expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+expected = { P1 = "fuzzed", P2 = "fuzzed" }
 
 [[case]]
 target = "ai_codex.py::run_length_encode"
+fuzz = 3
 category = "ai_generated"
 inputs = ["english"]
 reason = "UNSUPPORTED_CONSTRUCT"
-expected = { P1 = "out_of_scope", P2 = "out_of_scope", P3 = "out_of_scope" }
+expected = { P1 = "fuzzed", P2 = "fuzzed", P3 = "fuzzed" }
 
 [[case]]
 target = "ai_codex.py::second_largest"
+fuzz = 3
 category = "ai_generated"
 inputs = ["english"]
 reason = "UNSUPPORTED_CONSTRUCT"
-expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+expected = { P1 = "fuzzed", P2 = "fuzzed" }
 
 # `i = j = 0` (chained assignment) comes before the while loop.
 [[case]]
 target = "ai_codex.py::merge_sorted"
+fuzz = 3
 category = "ai_generated"
 inputs = ["english"]
 reason = "UNSUPPORTED_CONSTRUCT"
-expected = { P1 = "out_of_scope", P2 = "out_of_scope" }
+expected = { P1 = "fuzzed", P2 = "fuzzed" }
 
 [[case]]
 target = "ai_codex.py::is_leap_year"
 category = "ai_generated"
 inputs = ["english"]
 expected = { P1 = "holds", P2 = "holds", P3 = "holds" }
+
+# ---- M6: fuzzing and TLA+ ----
+
+# A planted bug outside the subset that the default refutation (300 Hypothesis inputs, 3 s of
+# CrossHair) misses: pow(total, 5, 10007) == 1234 is a needle neither reaches. A fuzzing campaign
+# finds it (it stops at the first counterexample, so the budget is a ceiling).
+[[case]]
+target = "loops.py::mix"
+fuzz = 60
+category = "planted_bug"
+inputs = ["docstring"]
+reason = "NONTERMINATION"
+expected = { P1 = "refuted" }
+
+# Concurrent code, checked against hand-written TLA+ bundles (evals/corpus/tla/<function>/).
+# The unlocked read-modify-write loses updates: TLC finds it in the spec, and a real run shows it.
+[[case]]
+target = "workers.py::racy_worker"
+tla = "tla/racy_worker"
+category = "concurrent"
+expected = { T_NoLostUpdate = "refuted", T_NeverAhead = "model_checked" }
+
+[[case]]
+target = "workers.py::locked_worker"
+tla = "tla/locked_worker"
+category = "concurrent"
+expected = { T_NoLostUpdate = "model_checked", T_NeverAhead = "model_checked" }
+
+# The spec says +1 per step; the code adds 2: both invariants break in real runs.
+[[case]]
+target = "workers.py::double_worker"
+tla = "tla/double_worker"
+category = "concurrent"
+expected = { T_NoLostUpdate = "refuted", T_NeverAhead = "refuted" }
+
+# Never wrong at the end, but each step dips below its start: runs the spec does not allow.
+[[case]]
+target = "workers.py::jittery_worker"
+tla = "tla/jittery_worker"
+category = "concurrent"
+expected = { T_NoLostUpdate = "fidelity_failed", T_NeverAhead = "fidelity_failed" }

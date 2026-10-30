@@ -28,7 +28,9 @@ hints, proofs); Apex checks; only Apex's verdicts count. Targets look like `path
    through `python scripts/apex_run.py <verb> <args>`, which prints a short summary and saves the
    full JSON under `.apex/`.
 3. **Analyze.** `apex analyze <target>` (`apex_analyze`). If it is out of scope, report the reason
-   code and the pure core, and stop; a pure function can still be refuted (step 7).
+   code and the pure core; a pure function can still be refuted (step 7) and fuzzed (step 8).
+   For concurrent code (`NEEDS_CONCURRENCY_TOOL`, threads, locks), use a TLA+ bundle instead:
+   [references/TLA.md](references/TLA.md).
 4. **Draft statements.** For English items listed under "needs a formal hint", write hints as in
    [references/INTENT.md](references/INTENT.md) and submit them (`apex intent submit <target>
    --file proposals.json`, or `apex_intent_submit`). Then `apex scaffold <target>` drafts a Lean
@@ -44,7 +46,10 @@ hints, proofs); Apex checks; only Apex's verdicts count. Targets look like `path
 7. **Refute.** `apex refute <target>` (`apex_refute`). A counterexample ends that property: fix the
    code or the intent, never the theorem. `apex suggest <target>` writes a regression test that
    replays it.
-8. **Report.** Present Apex's report table verbatim (`apex verify <target> --markdown`, or the
+8. **Fuzz what Lean left open.** For properties still `unproven` or `out_of_scope` on a pure
+   function, `apex fuzz <target> --seconds 30` (`apex_fuzz`) runs a recorded campaign; `verify`
+   then reports `fuzzed` (evidence, not proof) or `refuted`.
+9. **Report.** Present Apex's report table verbatim (`apex verify <target> --markdown`, or the
    table `scripts/apex_run.py` prints), then summarise in one paragraph. What each verdict means
    and how to word it: [references/VERDICTS.md](references/VERDICTS.md); gap reason codes:
    [references/GAP_CODES.md](references/GAP_CODES.md); the supported Python subset:
@@ -52,7 +57,8 @@ hints, proofs); Apex checks; only Apex's verdicts count. Targets look like `path
 
 ## Hard rules
 
-- Never describe anything as proven unless Apex's verdict says `proven`.
+- Never describe anything as proven unless Apex's verdict says `proven`. `fuzzed` and
+  `model_checked` are evidence: say what ran and within which bounds.
 - Never edit `.apex/reviews.json`. Approval is the user's, in their own terminal.
 - Never weaken or reword a theorem statement to make a proof pass without new approval.
 - Never write a formal hint that describes what the code does instead of what the intent says.

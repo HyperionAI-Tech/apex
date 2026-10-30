@@ -1,0 +1,216 @@
+{
+  "$defs": {
+    "Counterexample": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "found_by": {
+          "enum": [
+            "crosshair",
+            "hypothesis",
+            "example",
+            "fuzz",
+            "stress"
+          ],
+          "title": "Found By",
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "inputs",
+        "found_by"
+      ],
+      "title": "Counterexample",
+      "type": "object"
+    },
+    "FuzzEvidence": {
+      "additionalProperties": false,
+      "description": "One property's fuzzing campaign, as `apex fuzz` recorded it.",
+      "properties": {
+        "engine": {
+          "enum": [
+            "hypothesis",
+            "atheris"
+          ],
+          "title": "Engine",
+          "type": "string"
+        },
+        "executions": {
+          "title": "Executions",
+          "type": "integer"
+        },
+        "found": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Counterexample"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "function_sha256": {
+          "title": "Function Sha256",
+          "type": "string"
+        },
+        "hint": {
+          "title": "Hint",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "property_id": {
+          "title": "Property Id",
+          "type": "string"
+        },
+        "seconds": {
+          "title": "Seconds",
+          "type": "number"
+        },
+        "skipped": {
+          "default": 0,
+          "title": "Skipped",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "property_id",
+        "hint",
+        "function_sha256",
+        "engine",
+        "executions",
+        "seconds"
+      ],
+      "title": "FuzzEvidence",
+      "type": "object"
+    },
+    "PropertyRefutation": {
+      "properties": {
+        "counterexample": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Counterexample"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "refuted": {
+          "title": "Refuted",
+          "type": "boolean"
+        },
+        "searched_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Searched By",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "refuted"
+      ],
+      "title": "PropertyRefutation",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "budget_s": {
+      "title": "Budget S",
+      "type": "number"
+    },
+    "engine": {
+      "enum": [
+        "hypothesis",
+        "atheris"
+      ],
+      "title": "Engine",
+      "type": "string"
+    },
+    "properties": {
+      "items": {
+        "$ref": "#/$defs/FuzzEvidence"
+      },
+      "title": "Properties",
+      "type": "array"
+    },
+    "skipped": {
+      "items": {
+        "$ref": "#/$defs/PropertyRefutation"
+      },
+      "title": "Skipped",
+      "type": "array"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target",
+    "engine",
+    "budget_s"
+  ],
+  "title": "FuzzResult",
+  "type": "object"
+}

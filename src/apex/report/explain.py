@@ -26,16 +26,25 @@ MEANING: dict[Verdict, str] = {
     "statement says what the function should do, so it does not count as proven yet.",
     Verdict.PROVEN_CONDITIONAL: "Lean proved this statement only under assumptions the source "
     "does not state.",
-    Verdict.REFUTED: "A concrete input makes the real Python break this property. Apex replayed "
-    "the input in Python, so this is an observed fact, not a guess.",
-    Verdict.FIDELITY_FAILED: "The Lean model and the real Python disagree on some input, so any "
-    "proof was about the wrong function and was discarded.",
+    Verdict.REFUTED: "A concrete input (or, for concurrent code, a recorded run) makes the real "
+    "Python break this property. Apex watched it happen on the real code, so this is an observed "
+    "fact, not a guess.",
+    Verdict.FIDELITY_FAILED: "The model Apex checked (the Lean model, or the TLA+ spec) and the "
+    "real Python disagree, so any result about the model was about the wrong thing and was "
+    "discarded.",
     Verdict.CONTRADICTION: "Two sources of intent disagree. Nothing about this property was "
     "checked against the code until a person decides which source is right.",
     Verdict.UNPROVEN: "Apex found neither a proof nor a counterexample. This is a gap, not a "
     "pass and not a failure.",
     Verdict.OUT_OF_SCOPE: "Apex cannot model this function faithfully, so it makes no claim "
     "about it either way.",
+    Verdict.FUZZED: "Lean could not decide this property, so Apex fuzzed the real Python: a "
+    "recorded campaign found no counterexample. That is evidence, not proof; inputs it never "
+    "tried can still break the property.",
+    Verdict.MODEL_CHECKED: "Lean cannot model this concurrent code, so Apex checked a TLA+ spec of "
+    "it: TLC explored every state within the configured bounds without a violation, and recorded "
+    "runs of the real code matched the spec. That is evidence about a bounded abstraction, not "
+    "proof: larger bounds or schedules the runs never hit can still break it.",
 }
 
 
@@ -71,6 +80,11 @@ def _narrative(f: FunctionResult, p: PropertyResult) -> str:
     if c is None:
         return ""
     name = f.qualname.split(".", 1)[-1]
+    if c.found_by == "stress":
+        return (
+            f"In run {c.inputs.get('run', '?')} of the harness, the real {name} {c.actual}, "
+            f"which breaks the TLA+ invariant {c.expected}."
+        )
     args = ", ".join(f"{k}={v}" for k, v in c.inputs.items())
     if p.verdict is Verdict.FIDELITY_FAILED:
         return f"On {name}({args}) the {c.expected}, but the {c.actual}."
@@ -82,8 +96,8 @@ def _narrative(f: FunctionResult, p: PropertyResult) -> str:
 def regression_test(f: FunctionResult, p: PropertyResult, params: list[str] | None) -> str | None:
     """A pytest test that fails exactly while the counterexample still breaks the property."""
     c = p.counterexample
-    if c is None or p.verdict is not Verdict.REFUTED:
-        return None
+    if c is None or p.verdict is not Verdict.REFUTED or c.found_by == "stress":
+        return None  # a stress run is an interleaving, not an input a test can replay
     module, name = f.qualname.split(".", 1)
     names = params if params is not None else list(c.inputs)
     if set(names) != set(c.inputs):

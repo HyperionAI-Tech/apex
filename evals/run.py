@@ -36,17 +36,19 @@ from pathlib import Path
 from equivalence import equivalent_pairs
 
 from apex.analyze.target import load_function
-from apex.core.verdict import LEAN_ONLY_VERDICTS, Verdict
+from apex.core.verdict import EVIDENCE_VERDICTS, LEAN_ONLY_VERDICTS, Verdict
 from apex.lean.project import LeanProject
 from apex.llm.providers import Provider
 from apex.pipeline import (
     Workspace,
     _analyze,
     function_id,
+    fuzz_target,
     load_spec,
     prove_llm,
     prove_tactics,
     scaffold,
+    tla_check_target,
     verify,
 )
 
@@ -55,12 +57,13 @@ CORPUS = ROOT / "corpus"
 REVIEWER = "evals: reference statement"
 EQUIV_REVIEWER = "evals: equivalent to a reference statement"
 EXAMPLE_REVIEWER = "evals: literal example from a doctest or test"
+BUNDLE_REVIEWER = "evals: reference TLA+ bundle"
 CONFIG = "[apex]\nrefute_budget_s = 3\nllm_parallel = 2\n"
 _HOLDS = {"proven", "proven_unreviewed", "unproven"}
 """`holds`: the statement is true of this code. Proving it is right; failing to is a closure gap."""
 _MAY_PROVE = {"proven", "proven_unreviewed", "holds"}
 SOURCE_KINDS = {"spec": "english", "docstring": "docstring", "test": "tests", "source": "source"}
-STRICT = ("planted_bug", "conflict", "ai_generated")
+STRICT = ("planted_bug", "conflict", "ai_generated", "concurrent")
 """Categories where anything proven must be expected proven (or holds)."""
 CORPUS_TARGET = {
     "known_good": 50,
@@ -68,6 +71,7 @@ CORPUS_TARGET = {
     "conflict": 15,
     "out_of_scope": 15,
     "ai_generated": 10,
+    "concurrent": 4,
 }
 """The handoff's composition (~120 functions), for the scoreboard's corpus line."""
 
@@ -114,6 +118,17 @@ class CaseResult:
                 out.append(pid)
         return out
 
+    @property
+    def false_evidence(self) -> list[str]:
+        """`fuzzed` or `model_checked` on a property the corpus says must fail: the second
+        number that must stay 0 (evidence verdicts are gaps, but they must not hide a bug)."""
+        return [
+            pid
+            for pid, got in self.verdicts.items()
+            if Verdict(got) in EVIDENCE_VERDICTS
+            and self.expected.get(pid) in ("refuted", "contradiction", "fidelity_failed")
+        ]
+
     def matches(self, pid: str) -> bool:
         want, got = self.expected[pid], self.verdicts.get(pid)
         if want == "holds":
@@ -126,7 +141,7 @@ class CaseResult:
 
     @property
     def ok(self) -> bool:
-        if self.error or self.false_proven or self.missing_inputs:
+        if self.error or self.false_proven or self.false_evidence or self.missing_inputs:
             return False
         if self.expected_reason is not None and self.reason != self.expected_reason:
             return False
@@ -153,6 +168,13 @@ def run_case(
         work = Path(tmp)
         for src in [*CORPUS.glob("*.py"), *CORPUS.glob("*.md")]:
             shutil.copy(src, work / src.name)
+        if bundle := case.get("tla"):
+            info = load_function(str(work / case["target"]))
+            shutil.copytree(
+                CORPUS / bundle,
+                Workspace.discover(work).tla_dir(info),
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
         (work / "apex.toml").write_text(CONFIG + f"retries = {retries}\n")
         ws = Workspace.discover(work)
         target = str(work / case["target"])
@@ -211,6 +233,11 @@ def run_case(
                     res.llm_closed = list(proved.closed)
                     res.llm_attempts = sum(proved.attempts.values())
 
+            if seconds := case.get("fuzz"):
+                fuzz_target(target, ws, budget_s=float(seconds))
+            if case.get("tla"):
+                _approve_bundle(target, ws)
+                tla_check_target(target, ws, runs=int(case.get("tla_runs", 200)))
             report = verify([target], ws, project=project, write_report=False)
             fn = report.functions[0]
             res.verdicts = {p.id: str(p.verdict) for p in fn.properties}
@@ -227,6 +254,23 @@ def run_case(
         finally:
             res.seconds = round(time.monotonic() - started, 2)
     return res
+
+
+def _approve_bundle(target: str, ws: Workspace) -> None:
+    """A reference bundle is ground truth written by a person, like a reference statement."""
+    from apex.tla.bundle import load_bundle
+
+    info = load_function(target)
+    b = load_bundle(ws.tla_dir(info))
+    for inv, pid in zip(b.invariants, b.property_ids, strict=True):
+        ws.review_store.approve(
+            qualname=function_id(info),
+            property_id=pid,
+            statement=b.statement(inv),
+            function_sha256=info.sha256,
+            statement_sha256=b.sha256,
+            reviewer=BUNDLE_REVIEWER,
+        )
 
 
 def scoreboard(results: list[CaseResult], *, full: bool = False) -> dict:
@@ -260,9 +304,12 @@ def scoreboard(results: list[CaseResult], *, full: bool = False) -> dict:
         if r.ok and r.expected and all(r.verdicts.get(p) == Verdict.PROVEN for p in r.expected)
     ]
     false_proven = sum(len(r.false_proven) for r in results)
+    false_evidence = sum(len(r.false_evidence) for r in results)
     ai = by_cat.get("ai_generated", [])
+    got = [v for r in results for v in r.verdicts.values()]
     return {
         "false_proven": false_proven,
+        "false_evidence": false_evidence,
         "cases_ok": f"{sum(r.ok for r in results)}/{len(results)}",
         "corpus": ", ".join(
             f"{cat} {len(by_cat.get(cat, []))}/{n}" for cat, n in CORPUS_TARGET.items()
@@ -285,11 +332,17 @@ def scoreboard(results: list[CaseResult], *, full: bool = False) -> dict:
         else 0,
         "known_good_fully_proven": f"{len(fully_proven)}/{len(good)}",
         "ai_generated_in_subset": f"{sum(r.reason is None for r in ai)}/{len(ai)}",
+        "evidence_verdicts": f"fuzzed {got.count('fuzzed')}, model_checked "
+        f"{got.count('model_checked')}",
         "m1_gate": len(fully_proven) >= 5 and false_proven == 0,
         "m2_gate": false_proven == 0
         and len(contra) == len(want_con) > 0
         and all(produced[k] > 0 for k in ("english", "tests", "source", "docstring")),
         "m5_gate": full and false_proven == 0 and all(r.ok for r in results),
+        "m6_gate": full
+        and false_proven == 0
+        and false_evidence == 0
+        and all(r.ok for r in results),
     }
 
 
@@ -333,6 +386,8 @@ def main() -> int:
                 print(f"       error: {r.error}")
             if r.false_proven:
                 print(f"       FALSE PROVEN: {', '.join(r.false_proven)}")
+            if r.false_evidence:
+                print(f"       FALSE EVIDENCE: {', '.join(r.false_evidence)}")
             if r.missing_inputs:
                 print(f"       intent sources missing: {', '.join(r.missing_inputs)}")
             for p, want in r.expected.items():
@@ -347,7 +402,8 @@ def main() -> int:
         print("\nscoreboard")
         for k, v in board.items():
             print(f"  {k:34} {v}")
-    failed = board["false_proven"] > 0 or any(not r.ok for r in results)
+    failed = board["false_proven"] > 0 or board["false_evidence"] > 0
+    failed = failed or any(not r.ok for r in results)
     return 1 if failed else 0
 
 

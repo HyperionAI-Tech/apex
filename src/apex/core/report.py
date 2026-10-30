@@ -31,7 +31,48 @@ class Counterexample(_Strict):
     """Argument name -> Python `repr` of the value, so it can be replayed verbatim."""
     expected: str | None = None
     actual: str | None = None
-    found_by: Literal["crosshair", "hypothesis", "example"]
+    found_by: Literal["crosshair", "hypothesis", "example", "fuzz", "stress"]
+    """`fuzz`: a fuzzing campaign; `stress`: observed in a scheduled run of concurrent code."""
+
+
+class FuzzEvidence(_Strict):
+    """One property's fuzzing campaign, as `apex fuzz` recorded it."""
+
+    property_id: str
+    hint: str
+    """The formal hint the campaign checked; evidence is stale once it changes."""
+    function_sha256: str
+    engine: Literal["hypothesis", "atheris"]
+    executions: int
+    seconds: float
+    skipped: int = 0
+    """Inputs left out because the Python hit its recursion limit or the per-call budget."""
+    found: Counterexample | None = None
+    note: str | None = None
+
+
+class ModelCheckEvidence(_Strict):
+    """One TLA+ invariant: TLC's check of the spec plus the conformance of the real code."""
+
+    property_id: str
+    invariant: str
+    spec_sha256: str
+    """Of Spec.tla, Spec.cfg and harness.py together: any edit makes the evidence stale."""
+    function_sha256: str
+    constants: dict[str, str] = Field(default_factory=dict)
+    """The bounds TLC checked under (from Spec.cfg)."""
+    states_generated: int = 0
+    distinct_states: int = 0
+    depth: int | None = None
+    tlc_trace: list[dict[str, str]] | None = None
+    """TLC's counterexample for this invariant, one state per step, if it found one."""
+    runs: int = 0
+    """Scheduled runs of the real code."""
+    traces_checked: int = 0
+    """Distinct recorded traces TLC checked against the spec."""
+    rejected_trace: list[dict[str, str]] | None = None
+    """A recorded trace the spec does not allow (the spec does not describe this code)."""
+    note: str | None = None
 
 
 class LeanError(_Strict):
@@ -70,6 +111,8 @@ class PropertyResult(_Strict):
     lean_errors: list[LeanError] = Field(default_factory=list)
     """For a proof Lean rejected: its errors with line, column and goal state (first few)."""
     provenance: Provenance = Field(default_factory=Provenance)
+    fuzz: FuzzEvidence | None = None
+    model_check: ModelCheckEvidence | None = None
 
     @model_validator(mode="after")
     def _verdict_shape(self) -> Self:
@@ -82,6 +125,14 @@ class PropertyResult(_Strict):
             raise ValueError("proven_conditional must list the added preconditions")
         if v is Verdict.REFUTED and self.counterexample is None:
             raise ValueError("refuted requires a concrete counterexample")
+        if v is Verdict.FUZZED and (self.fuzz is None or self.fuzz.found is not None):
+            raise ValueError("fuzzed requires a recorded campaign that found nothing")
+        if v is Verdict.MODEL_CHECKED and (
+            self.model_check is None
+            or self.model_check.tlc_trace is not None
+            or self.model_check.rejected_trace is not None
+        ):
+            raise ValueError("model_checked requires a clean TLC run and conforming traces")
         if v in GAP_VERDICTS - {Verdict.PROVEN_UNREVIEWED} and self.gap is None:
             raise ValueError(f"{v} is a gap and must carry a reason code and next steps")
         return self

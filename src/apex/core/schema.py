@@ -8,14 +8,22 @@ from pydantic import BaseModel
 from apex.cli.doctor import DoctorReport
 from apex.core.config import ApexConfig
 from apex.core.intent import IntentModel
-from apex.core.outputs import InitResult, ReviewStatus, SchemaExport, ToolErrorOutput
+from apex.core.outputs import (
+    InitResult,
+    ReviewStatus,
+    SchemaExport,
+    TlaDraftResult,
+    ToolErrorOutput,
+)
 from apex.core.report import Report
+from apex.fidelity.fuzz import FuzzResult
 from apex.fidelity.refute import RefuteResult
 from apex.intent.proposals import ProposalCheck, ProposalSet
 from apex.lean.compiler import CompileResult
 from apex.pipeline import AnalyzeResult, ProveResult, ScaffoldResult
 from apex.report.explain import AdviceList
 from apex.skill.install import SkillInstallResult
+from apex.tla.check import TlaCheckResult
 
 CONTRACTS: dict[str, type[BaseModel]] = {
     "intent_model": IntentModel,
@@ -36,6 +44,9 @@ CONTRACTS: dict[str, type[BaseModel]] = {
     "schema_export": SchemaExport,
     "tool_error": ToolErrorOutput,
     "install_result": SkillInstallResult,
+    "fuzz_result": FuzzResult,
+    "tla_check_result": TlaCheckResult,
+    "tla_draft_result": TlaDraftResult,
 }
 
 # Which schema each command's `--json` output follows (on exit 3, always `tool_error`).
@@ -50,6 +61,9 @@ CLI_OUTPUTS: dict[str, str] = {
     "check": "report",
     "report": "report",
     "refute": "refute_result",
+    "fuzz": "fuzz_result",
+    "tla check": "tla_check_result",
+    "tla draft": "tla_draft_result",
     "review": "review_status",
     "explain": "advice",
     "suggest": "advice",

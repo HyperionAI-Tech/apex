@@ -13,7 +13,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
@@ -25,6 +25,7 @@ from apex.core.hashing import sha256_text
 from apex.core.intent import Conflict, IntentModel, Property
 from apex.core.report import (
     FunctionResult,
+    FuzzEvidence,
     Gap,
     LeanError,
     ProofArtifact,
@@ -33,8 +34,10 @@ from apex.core.report import (
     Report,
     run_verdicts,
 )
-from apex.core.verdict import ReasonCode, Verdict, exit_code_for
+from apex.core.verdict import FAILURE_VERDICTS, ReasonCode, Verdict, exit_code_for
 from apex.fidelity.bridge import FidelityError, check_fidelity
+from apex.fidelity.fuzz import Engine, FuzzError, FuzzResult, fuzz
+from apex.fidelity.fuzz import replay as replay_fuzz
 from apex.fidelity.refute import RefuteResult, refute
 from apex.intent.candidates import Example, Mined
 from apex.intent.docstring import mine_docstring
@@ -56,6 +59,10 @@ from apex.prove.tactics import probe
 from apex.theorems.draft import DraftError, draft_property, formal_preconditions
 from apex.theorems.review import ReviewStore
 from apex.theorems.spec import Spec, SpecDecl, SpecError, parse_spec, render_decl
+from apex.tla.bundle import Bundle, BundleError, load_bundle
+from apex.tla.check import TlaCheckResult, check_bundle
+from apex.tla.conform import HarnessError
+from apex.tla.tlc import TlaUnavailable
 from apex.translate.lean import FunctionSig, LeanModel, TranslationError, signature, translate
 from apex.translate.literals import LiteralError, to_lean
 
@@ -148,6 +155,34 @@ class Workspace:
         path = self.provenance_path(info)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+    def tla_dir(self, info: FunctionInfo) -> Path:
+        """The function's TLA+ bundle (Spec.tla, Spec.cfg, harness.py) and its last check."""
+        return self._fn_dir("tla", info)
+
+    def tla_result(self, info: FunctionInfo) -> "TlaCheckResult | None":
+        path = self.tla_dir(info) / "evidence.json"
+        return TlaCheckResult.model_validate_json(path.read_text()) if path.is_file() else None
+
+    def fuzz_path(self, info: FunctionInfo) -> Path:
+        """The latest fuzzing campaign per property (`apex fuzz`)."""
+        return self._fn_dir("fuzz", info) / "evidence.json"
+
+    def fuzz_evidence(self, info: FunctionInfo) -> dict[str, FuzzEvidence]:
+        path = self.fuzz_path(info)
+        if not path.is_file():
+            return {}
+        data = json.loads(path.read_text())
+        return {pid: FuzzEvidence.model_validate(e) for pid, e in data.items()}
+
+    def record_fuzz(self, info: FunctionInfo, campaigns: list[FuzzEvidence]) -> None:
+        data = self.fuzz_evidence(info) | {e.property_id: e for e in campaigns}
+        path = self.fuzz_path(info)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({k: v.model_dump(mode="json") for k, v in sorted(data.items())}, indent=2)
+            + "\n"
+        )
 
     def english_specs(self, info: FunctionInfo) -> list[Path]:
         """English specs for a function: `<module>.spec.md` beside it, plus any registered."""
@@ -672,6 +707,199 @@ def _undeclared_result(prop: Property, floor: float, spec_path: Path) -> Propert
     )
 
 
+def _apply_fuzz(results: dict[str, PropertyResult], a: _Analysis, ws: Workspace) -> None:
+    """Recorded campaigns, where still current (same function, same hint): a clean one turns a
+    property Lean could not decide into `fuzzed`; a counterexample, replayed again here, refutes."""
+    evidence = ws.fuzz_evidence(a.info)
+    if not evidence or a.sig is None or a.purity.class_ != "pure":
+        return
+    hints = {p.id: p.formal_hint for p in a.intent.properties}
+    for pid, p in list(results.items()):
+        e = evidence.get(pid)
+        if e is None or e.function_sha256 != a.info.sha256 or e.hint != hints.get(pid):
+            continue
+        if e.found is not None:
+            if p.verdict in FAILURE_VERDICTS:
+                continue
+            cx = replay_fuzz(a.info, a.intent, a.sig.params, e)
+            if cx is not None:
+                results[pid] = PropertyResult(
+                    id=p.id,
+                    verdict=Verdict.REFUTED,
+                    lean_statement=p.lean_statement,
+                    review=p.review,
+                    counterexample=cx,
+                    provenance=p.provenance,
+                    fuzz=e,
+                )
+        elif e.executions > 0 and p.verdict in (Verdict.UNPROVEN, Verdict.OUT_OF_SCOPE):
+            results[pid] = p.model_copy(update={"verdict": Verdict.FUZZED, "fuzz": e})
+
+
+def _tla_results(info: FunctionInfo, ws: Workspace) -> list[PropertyResult]:
+    """One property per invariant of the function's TLA+ bundle, from its last `apex tla check`.
+
+    Precedence: the invariant observed breaking in a real run (`refuted`) > a recorded trace the
+    spec does not allow (`fidelity_failed`) > TLC could not check (`unproven`) > a TLC violation
+    no run reproduced (`unproven`) > `model_checked`. Stale evidence (the code or any bundle file
+    changed) counts as not checked.
+    """
+    if not ws.tla_dir(info).is_dir():
+        return []
+    try:
+        bundle = load_bundle(ws.tla_dir(info))
+    except BundleError:
+        return []
+    fid = function_id(info)
+    last = ws.tla_result(info)
+    fresh = (
+        last is not None
+        and last.spec_sha256 == bundle.sha256
+        and all(r.evidence.function_sha256 == info.sha256 for r in last.invariants.values())
+    )
+    target = f"{info.path}::{info.qualname}"
+    out = []
+    for pid in bundle.property_ids:
+        review = ws.review_store.status(fid, info.sha256, pid, bundle.sha256)
+        r = last.invariants.get(pid) if fresh and last else None
+        if r is None:
+            why = "changed since the last check" if last is not None else "not checked yet"
+            out.append(
+                PropertyResult(
+                    id=pid,
+                    verdict=Verdict.UNPROVEN,
+                    review=review,
+                    gap=Gap(
+                        reason_code=ReasonCode.NEEDS_CONCURRENCY_TOOL,
+                        explanation=f"The TLA+ bundle or the code is {why}.",
+                        next_steps=[f"Run `apex tla check {target}`."],
+                    ),
+                )
+            )
+            continue
+        e = r.evidence
+        if r.observed is not None:
+            out.append(
+                PropertyResult(
+                    id=pid,
+                    verdict=Verdict.REFUTED,
+                    review=review,
+                    counterexample=r.observed,
+                    model_check=e,
+                )
+            )
+        elif e.rejected_trace is not None:
+            out.append(
+                PropertyResult(
+                    id=pid,
+                    verdict=Verdict.FIDELITY_FAILED,
+                    review=review,
+                    model_check=e,
+                    gap=Gap(
+                        reason_code=ReasonCode.NEEDS_CONCURRENCY_TOOL,
+                        explanation="A recorded run of the real code is not a behavior of the "
+                        "TLA+ spec, so nothing TLC says about the spec applies to this code.",
+                        next_steps=[
+                            "Compare the rejected trace with the spec: fix the spec (or the "
+                            "harness's observe()) if the code is right, the code if not."
+                        ],
+                    ),
+                )
+            )
+        elif r.error is not None:
+            out.append(
+                PropertyResult(
+                    id=pid,
+                    verdict=Verdict.UNPROVEN,
+                    review=review,
+                    model_check=e,
+                    gap=Gap(
+                        reason_code=ReasonCode.MODEL_CHECK_FAILED,
+                        explanation=r.error,
+                        next_steps=["Fix the bundle and run `apex tla check` again."],
+                    ),
+                )
+            )
+        elif e.tlc_trace is not None:
+            out.append(
+                PropertyResult(
+                    id=pid,
+                    verdict=Verdict.UNPROVEN,
+                    review=review,
+                    model_check=e,
+                    gap=Gap(
+                        reason_code=ReasonCode.SPEC_VIOLATION_NOT_REPRODUCED,
+                        explanation=f"TLC found a {len(e.tlc_trace)}-step behavior of the spec "
+                        f"that breaks {e.invariant}; {e.runs} runs of the real code never "
+                        "showed it.",
+                        next_steps=[
+                            "Read TLC's trace (in --json): if the code can take it, add a "
+                            f"check_{e.invariant} to the harness or run more schedules; if not, "
+                            "the spec allows more than the code does."
+                        ],
+                    ),
+                )
+            )
+        else:
+            out.append(
+                PropertyResult(
+                    id=pid,
+                    verdict=Verdict.MODEL_CHECKED,
+                    review=review,
+                    model_check=e,
+                    gap=Gap(
+                        reason_code=ReasonCode.NEEDS_CONCURRENCY_TOOL,
+                        explanation="Checked within the bounds in Spec.cfg, against a spec the "
+                        "recorded runs conform to: evidence, not a proof about the code.",
+                        next_steps=[]
+                        if review.status == "approved"
+                        else [f"Review the bundle and run `apex review {target} --approve {pid}`."],
+                    ),
+                )
+            )
+    return out
+
+
+def tla_check_target(
+    target: str, ws: Workspace, *, runs: int = 200, run_timeout_s: float = 10.0
+) -> TlaCheckResult:
+    """TLC on the function's TLA+ bundle, then its real runs against the spec; recorded for
+    `verify`."""
+    info = load_function(target)
+    directory = ws.tla_dir(info)
+    try:
+        bundle = load_bundle(directory)
+        result = check_bundle(
+            bundle,
+            target,
+            Path(info.path),
+            info.sha256,
+            runs=runs,
+            run_timeout_s=run_timeout_s,
+        )
+    except (BundleError, HarnessError, TlaUnavailable) as e:
+        raise ApexToolError(str(e)) from e
+    (directory / "evidence.json").write_text(result.model_dump_json(indent=2))
+    return result
+
+
+def tla_draft_target(
+    target: str, ws: Workspace, *, provider: str | None = None, force: bool = False
+) -> Path:
+    """A model drafts the function's TLA+ bundle (pending review)."""
+    from apex.llm.providers import ProviderError, get_provider
+    from apex.tla.draft import DraftError, draft_bundle
+
+    info = load_function(target)
+    a = _analyze(target, ws)
+    intent = [f"- {p.text}" for p in a.intent.properties]
+    try:
+        llm = get_provider(ws.config, provider)
+        return draft_bundle(llm, info, intent, ws.tla_dir(info), force=force)
+    except (ProviderError, DraftError, TlaUnavailable) as e:
+        raise ApexToolError(str(e)) from e
+
+
 def _apply_refutation(results: dict[str, PropertyResult], refuted: RefuteResult) -> None:
     for r in refuted.properties:
         if r.refuted and r.id in results and r.counterexample is not None:
@@ -740,9 +968,10 @@ def _verify_function(
                 if pid in conflicted
                 else PropertyResult(id=pid, verdict=Verdict.OUT_OF_SCOPE, gap=a.gap)
             )
-        # No model to prove things about, but the real Python can still be refuted.
+        # No model to prove things about, but the real Python can still be refuted or fuzzed.
         if refuted := run_refutation(set(refutable)):
             _apply_refutation(oos, refuted)
+        _apply_fuzz(oos, a, ws)
         result.properties = [oos[pid] for pid in wanted]
         return result
 
@@ -853,6 +1082,7 @@ def _verify_function(
     settled = {pid for pid, p in compiled.items() if p.proof is not None}
     if refuted := run_refutation(set(refutable) - settled):
         _apply_refutation(compiled, refuted)
+    _apply_fuzz(compiled, a, ws)
     result.properties = [compiled[pid] for pid in wanted]
     return result
 
@@ -875,7 +1105,11 @@ def verify(
         _check_deadline(deadline)
         a = _analyze(target, ws)
         spec_path = (spec_paths or {}).get(target) or ws.spec_path(a.info)
-        functions.append(_verify_function(a, ws, spec_path, project, fidelity_n))
+        fn = _verify_function(a, ws, spec_path, project, fidelity_n)
+        if tla := _tla_results(a.info, ws):
+            seen = {p.id for p in fn.properties}
+            fn.properties += [p for p in tla if p.id not in seen]
+        functions.append(fn)
     report = Report(
         apex_version=__version__,
         mode=mode,  # type: ignore[arg-type]
@@ -976,6 +1210,35 @@ def refute_target(target: str, ws: Workspace, ids: list[str] | None = None) -> R
         ids=ids,
         budget_s=ws.config.refute_budget_s,
     )
+
+
+def fuzz_target(
+    target: str,
+    ws: Workspace,
+    *,
+    ids: list[str] | None = None,
+    budget_s: float | None = None,
+    engine: Engine | None = None,
+) -> FuzzResult:
+    """Run a fuzzing campaign per property and record it; `verify` reads the record."""
+    a = _analyze(target, ws)
+    if a.purity.class_ != "pure":
+        raise ApexToolError(f"{target} is not pure; fuzzing would run its side effects")
+    if a.sig is None:
+        raise ApexToolError(f"{target}: parameter or return types are outside the MVP subset")
+    try:
+        result = fuzz(
+            a.info,
+            a.intent,
+            a.sig.params,
+            ids=ids,
+            budget_s=budget_s if budget_s is not None else ws.config.fuzz_budget_s,
+            engine=engine or ws.config.fuzz_engine,
+        )
+    except FuzzError as e:
+        raise ApexToolError(str(e)) from e
+    ws.record_fuzz(a.info, result.properties)
+    return result
 
 
 # ---- prove (engine mode) ---------------------------------------------------------------------
@@ -1180,11 +1443,14 @@ def check(
     project: LeanProject | None = None,
     fidelity_n: int = 200,
     on_step: Callable[[CheckStep], None] | None = None,
+    fuzz_s: float | None = None,
 ) -> CheckRun:
     """Engine mode: analyze, formalize, scaffold, prove (tactics, then a model) and verify.
 
     Without a model provider the LLM steps are skipped and every deterministic step still runs,
-    so `apex check` is useful (and honest) with `model_provider = "none"`.
+    so `apex check` is useful (and honest) with `model_provider = "none"`. With `fuzz_s`, every
+    property Lean leaves open (all of them, for an out-of-scope function) gets a fuzzing
+    campaign of that many seconds before the verdicts are computed.
     """
     from apex.llm.providers import ProviderError, get_provider
 
@@ -1208,6 +1474,24 @@ def check(
         if on_step:
             on_step(s)
 
+    def maybe_fuzz(target: str, a: _Analysis, open_ids: list[str] | None) -> None:
+        if not fuzz_s or a.purity.class_ != "pure" or a.sig is None or open_ids == []:
+            return
+        _check_deadline(deadline)
+        try:
+            res = fuzz_target(target, ws, ids=open_ids, budget_s=fuzz_s)
+        except ApexToolError as e:
+            note(target, "fuzz", f"skipped: {e}")
+            return
+        found = [e.property_id for e in res.properties if e.found]
+        clean = [e.property_id for e in res.properties if not e.found and e.executions]
+        note(
+            target,
+            "fuzz",
+            f"{res.engine}: counterexample for {', '.join(found) or 'none'}; "
+            f"clean {', '.join(clean) or 'none'}",
+        )
+
     for target in targets:
         _check_deadline(deadline)
         a = _analyze(target, ws)
@@ -1229,11 +1513,13 @@ def check(
             a = _analyze(target, ws)
         if a.model is None:
             note(target, "analyze", f"out of scope ({a.gap.reason_code if a.gap else '?'})")
+            maybe_fuzz(target, a, None)
             continue
         _check_deadline(deadline)
         sc = scaffold(target, ws, project)
         if sc.gap is not None:
             note(target, "scaffold", f"{sc.gap.reason_code}: {sc.gap.explanation}")
+            maybe_fuzz(target, a, None)
             continue
         _check_deadline(deadline)
         tac = prove_tactics(target, ws, project=project)
@@ -1243,15 +1529,18 @@ def check(
                 "tactics",
                 f"closed {', '.join(tac.closed) or 'none'}; open {', '.join(tac.open) or 'none'}",
             )
+        still_open = list(tac.open)
         if llm is not None and tac.open:
             _check_deadline(deadline)
             res = prove_llm(target, ws, llm, project=project, deadline=deadline)
+            still_open = list(res.open)
             note(
                 target,
                 "llm-prove",
                 f"{llm.name} closed {', '.join(res.closed) or 'none'}; "
-                f"open {', '.join(res.open) or 'none'}",
+                f"open {', '.join(still_open) or 'none'}",
             )
+        maybe_fuzz(target, a, still_open)
     report = verify(
         targets,
         ws,
@@ -1267,23 +1556,88 @@ def check(
 # ---- review status (read-only; approval is CLI + TTY only) -----------------------------------
 
 
+@dataclass
+class Reviewable:
+    """A statement a person can approve: a Lean theorem, or a TLA+ invariant with its bundle."""
+
+    id: str
+    kind: Literal["lean", "tla"]
+    english: str | None
+    statement: str
+    """The exact text approval is recorded for."""
+    shown: str
+    """What the reviewer reads (for TLA+: the invariant, its bounds and the bundle's files)."""
+    statement_sha256: str
+
+
+def reviewables(
+    info: FunctionInfo, ws: Workspace, spec_path: Path | None = None
+) -> list[Reviewable]:
+    spec_path = spec_path or ws.spec_path(info)
+    out = []
+    if spec_path.is_file():
+        for d in load_spec(spec_path).properties:
+            out.append(
+                Reviewable(
+                    d.name, "lean", d.doc, d.full_statement, d.full_statement, d.statement_sha256
+                )
+            )
+    if ws.tla_dir(info).is_dir():
+        try:
+            b = load_bundle(ws.tla_dir(info))
+        except BundleError as e:
+            raise ApexToolError(str(e)) from e
+        rel = os.path.relpath(b.dir, ws.root)
+        for inv, pid in zip(b.invariants, b.property_ids, strict=True):
+            out.append(
+                Reviewable(
+                    pid,
+                    "tla",
+                    f"TLA+ invariant {inv}; approving it approves the whole bundle in {rel}",
+                    b.statement(inv),
+                    _tla_summary(b, inv, rel),
+                    b.sha256,
+                )
+            )
+    return out
+
+
+def _tla_summary(b: Bundle, inv: str, rel: str) -> str:
+    lines = b.spec.splitlines()
+    start = next((i for i, ln in enumerate(lines) if re.match(rf"^{inv}\s*==", ln)), None)
+    definition = []
+    if start is not None:
+        definition.append(lines[start])
+        for ln in lines[start + 1 :]:
+            if not ln.startswith((" ", "\t")) or not ln.strip():
+                break
+            definition.append(ln)
+    bounds = ", ".join(f"{k} = {v}" for k, v in b.constants.items()) or "none"
+    return (
+        "\n".join(definition or [f"{inv} (definition not found in Spec.tla)"])
+        + f"\n  bounds: {bounds}\n  read all of {rel}/Spec.tla, Spec.cfg and harness.py "
+        f"(bundle sha256 {b.sha256[:12]})"
+    )
+
+
 def review_status(target: str, ws: Workspace, spec_path: Path | None = None) -> "ReviewStatus":
     from apex.core.outputs import ReviewEntry, ReviewStatus
 
     info = load_function(target)
     spec_path = spec_path or ws.spec_path(info)
-    spec = load_spec(spec_path)
     fid = function_id(info)
     entries = []
-    for d in spec.properties:
-        r = ws.review_store.status(fid, info.sha256, d.name, d.statement_sha256)
+    for r in reviewables(info, ws, spec_path):
+        st = ws.review_store.status(fid, info.sha256, r.id, r.statement_sha256)
         entries.append(
             ReviewEntry(
-                id=d.name,
-                english=d.doc,
-                lean=d.full_statement,
-                status=r.status,
-                reviewer=r.reviewer,
+                id=r.id,
+                kind=r.kind,
+                english=r.english,
+                lean=r.statement if r.kind == "lean" else None,
+                tla=r.shown if r.kind == "tla" else None,
+                status=st.status,
+                reviewer=st.reviewer,
             )
         )
     return ReviewStatus(target=target, spec_path=str(spec_path), statements=entries)

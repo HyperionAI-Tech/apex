@@ -9,7 +9,9 @@
         "fidelity_failed",
         "contradiction",
         "unproven",
-        "out_of_scope"
+        "out_of_scope",
+        "fuzzed",
+        "model_checked"
       ],
       "title": "Verdict",
       "type": "string"
@@ -31,6 +33,23 @@
       },
       "title": "Fail On",
       "type": "array"
+    },
+    "fuzz_budget_s": {
+      "default": 30,
+      "description": "Per property: length of a fuzzing campaign (`apex fuzz`; `apex check --fuzz` overrides it).",
+      "exclusiveMinimum": 0,
+      "title": "Fuzz Budget S",
+      "type": "number"
+    },
+    "fuzz_engine": {
+      "default": "hypothesis",
+      "description": "hypothesis (pure Python) or atheris (coverage-guided; the `fuzz` extra).",
+      "enum": [
+        "hypothesis",
+        "atheris"
+      ],
+      "title": "Fuzz Engine",
+      "type": "string"
     },
     "ignore": {
       "items": {

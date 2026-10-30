@@ -24,6 +24,9 @@ anthropic = [
 openai = [
     "openai>=3.41.0",
 ]
+# Coverage-guided fuzzing (`apex fuzz --engine atheris`). Builds against a libFuzzer-capable
+# clang: on macOS, CLANG_BIN=$(brew --prefix llvm)/bin/clang.
+fuzz = ["atheris>=3.0"]
 
 [project.scripts]
 apex = "apex.cli.app:main"
@@ -87,4 +90,5 @@ testpaths = ["tests"]
 markers = [
     "lean: needs the pinned Lean toolchain and Mathlib cache (run `apex init` first)",
     "install: builds the wheel and installs it with `uv tool install` (slow; needs uv)",
+    "tla: needs Java and the pinned tla2tools.jar (run `apex init --tla` first)",
 ]

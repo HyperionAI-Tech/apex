@@ -58,6 +58,8 @@ model_provider = "none"
 # model = "..."                    # optional; unset means the provider's default
 proof_budget_s = 120               # per theorem: Lean time for one compile of its proof
 refute_budget_s = 10               # CrossHair time per property
+fuzz_budget_s = 30                 # per property: one `apex fuzz` campaign
+fuzz_engine = "hypothesis"         # or "atheris" (coverage-guided; needs the fuzz extra)
 retries = 4                        # fixer-loop iterations (model proofs fed Lean's errors)
 llm_parallel = 4                   # theorems a model works on at the same time
 confidence_floor = 0.6             # below this, a property is flagged SPEC_AMBIGUOUS
@@ -114,6 +116,10 @@ def init(
     yes: Annotated[
         bool, typer.Option("--yes", "-y", help="Skip the download confirmation.")
     ] = False,
+    tla: Annotated[
+        bool,
+        typer.Option("--tla", help="Also install the pinned TLA+ tools (TLC; needs Java 11+)."),
+    ] = False,
 ) -> None:
     """Write apex.toml, then fetch the pinned Lean toolchain and the prebuilt Mathlib cache."""
     steps: list[dict] = []
@@ -169,6 +175,17 @@ def init(
             _emit_init(as_json, steps, "`lake build Apex` failed")
             raise typer.Exit(ExitCode.TOOL_ERROR)
         project.mark_prelude_built()
+    if tla:
+        from apex.tla import tlc
+
+        try:
+            jar = tlc.install()
+            tlc.tools()  # Java present, checksum matches
+        except (tlc.TlaUnavailable, OSError) as e:
+            steps.append({"step": "tla_tools", "status": "failed"})
+            _emit_init(as_json, steps, str(e))
+            raise typer.Exit(ExitCode.TOOL_ERROR) from None
+        steps.append({"step": "tla_tools", "status": "ok", "path": str(jar)})
     _emit_init(as_json, steps, None)
 
 
@@ -444,6 +461,67 @@ def refute(
     raise typer.Exit(ExitCode.FAILURE if refuted else ExitCode.OK)
 
 
+@app.command()
+def fuzz(
+    target: Target,
+    prop: Annotated[
+        list[str] | None, typer.Option("--property", "-p", help="Only these property IDs.")
+    ] = None,
+    seconds: Annotated[
+        float | None,
+        typer.Option("--seconds", "-s", help="Per property (default: fuzz_budget_s)."),
+    ] = None,
+    engine: Annotated[
+        str | None, typer.Option("--engine", help="hypothesis or atheris (default: config).")
+    ] = None,
+    as_json: JsonFlag = False,
+) -> None:
+    """Fuzz the real Python for a time budget per property and record the campaign.
+
+    `verify` reads the record: a clean campaign turns a property Lean could not decide into
+    `fuzzed` (evidence, not proof); a counterexample, replayed in Python, is `refuted`. Exit 1 on
+    a counterexample, 2 when the campaigns were clean (fuzzed is a gap), 3 on a tool error.
+    """
+    from apex import pipeline
+    from apex.fidelity.fuzz import ENGINES
+
+    if engine is not None and engine not in ENGINES:
+        _fail(as_json, f"unknown engine {engine!r}; choose from {', '.join(ENGINES)}")
+    with _tool_errors(as_json):
+        result = pipeline.fuzz_target(
+            target,
+            _workspace(as_json),
+            ids=prop,
+            budget_s=seconds,
+            engine=engine,  # type: ignore[arg-type]
+        )
+    found = [e for e in result.properties if e.found]
+    if as_json:
+        typer.echo(result.model_dump_json(indent=2))
+    else:
+        for e in result.properties:
+            skipped = f", {e.skipped} skipped" if e.skipped else ""
+            note = f"; {e.note}" if e.note else ""
+            if e.found:
+                cx = e.found
+                args = ", ".join(f"{k}={v}" for k, v in cx.inputs.items())
+                console.print(
+                    f"  [red]refuted[/]  {e.property_id}  "
+                    f"{escape(args)} -> {escape(cx.actual or '')}  (expected "
+                    f"{escape(cx.expected or '')}; after {e.executions:,} executions)"
+                )
+            else:
+                console.print(
+                    f"  no counterexample  {e.property_id}  ({e.executions:,} executions, "
+                    f"{e.engine}, {e.seconds:.0f}s{skipped}{escape(note)})"
+                )
+        for r in result.skipped:
+            console.print(f"  not fuzzed  {r.id}  ({escape(r.note or '')})")
+    if found:
+        raise typer.Exit(ExitCode.FAILURE)
+    raise typer.Exit(ExitCode.GAPS)
+
+
 intent_app = typer.Typer(
     help="Formal hints proposed by a model (engine mode) or by the agent driving Apex (host "
     "mode). Proposals are checked, never trusted.",
@@ -613,6 +691,14 @@ def check(
         float | None,
         typer.Option(help="Seconds for the whole run; past it, Apex stops with exit code 3."),
     ] = None,
+    fuzz_s: Annotated[
+        float | None,
+        typer.Option(
+            "--fuzz",
+            help="Fuzz every property Lean leaves open for this many seconds each (evidence: "
+            "`fuzzed`, never `proven`).",
+        ),
+    ] = None,
     as_json: JsonFlag = False,
     markdown: MarkdownFlag = False,
     sarif: SarifOpt = None,
@@ -620,7 +706,8 @@ def check(
     """Engine mode: the full pipeline over files or a package.
 
     For each function: analyze, formalize English intent (model), scaffold, prove (tactic tiers,
-    then a model), and verify with refutation. With no provider the model steps are skipped.
+    then a model), optionally fuzz what Lean left open, and verify with refutation. With no
+    provider the model steps are skipped.
     """
     from apex import pipeline
 
@@ -640,6 +727,7 @@ def check(
             include_private=include_private,
             timeout_s=timeout,
             on_step=show,
+            fuzz_s=fuzz_s,
         )
     _emit_report(run.report, as_json, markdown, sarif)
 
@@ -653,10 +741,11 @@ def review(
     spec: SpecOpt = None,
     as_json: JsonFlag = False,
 ) -> None:
-    """Show statements in English and Lean with review status; --approve records approval.
+    """Show statements (Lean theorems, TLA+ invariants) with review status; --approve records
+    approval.
 
     Approval demands an interactive terminal, so a coding agent's shell cannot approve on a
-    human's behalf.
+    human's behalf. Approving a TLA+ invariant approves its whole bundle (spec, config, harness).
     """
     from apex import pipeline
     from apex.analyze.target import load_function
@@ -666,11 +755,9 @@ def review(
     with _tool_errors(as_json):
         info = load_function(target)
         spec_path = spec or ws.spec_path(info)
-        parsed = pipeline.load_spec(spec_path)
+        items = pipeline.reviewables(info, ws, spec_path)
     store, fid = ws.review_store, pipeline.function_id(info)
-    rows = [
-        (d, store.status(fid, info.sha256, d.name, d.statement_sha256)) for d in parsed.properties
-    ]
+    rows = [(d, store.status(fid, info.sha256, d.id, d.statement_sha256)) for d in items]
 
     if approve is None:
         if as_json:
@@ -678,9 +765,11 @@ def review(
                 status = pipeline.review_status(target, ws, spec_path)
             typer.echo(status.model_dump_json(indent=2))
             return
+        if not rows:
+            console.print(f"nothing to review for {target}: no Lean spec and no TLA+ bundle yet")
         for d, r in rows:
-            console.print(f"[bold]{d.name}[/] {escape(f'[{r.status}]')}  {escape(d.doc or '')}")
-            console.print(f"    {d.full_statement}", markup=False, highlight=False)
+            console.print(f"[bold]{d.id}[/] {escape(f'[{r.status}]')}  {escape(d.english or '')}")
+            console.print(f"    {d.shown}", markup=False, highlight=False)
         return
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -690,29 +779,30 @@ def review(
             f"`apex review {target} --approve {approve}` themselves.",
         )
     ids = [i.strip() for i in approve.split(",") if i.strip()]
-    chosen = [(d, r) for d, r in rows if d.name in ids]
-    if missing := set(ids) - {d.name for d, _ in chosen}:
-        _fail(as_json, f"no such properties in {spec_path}: {', '.join(sorted(missing))}")
+    chosen = [(d, r) for d, r in rows if d.id in ids]
+    if missing := set(ids) - {d.id for d, _ in chosen}:
+        _fail(as_json, f"no such properties for {target}: {', '.join(sorted(missing))}")
     reviewer = current_reviewer()
     console.print(
         f"You ({reviewer}) are approving these statements as the intended meaning "
-        f"of {fid}. Proofs about them will be reported as [bold]proven[/]."
+        f"of {fid}. Lean proofs of them will be reported as [bold]proven[/]; TLA+ invariants "
+        "stay [bold]model_checked[/] (evidence, never proof)."
     )
     for d, _ in chosen:
-        console.print(f"\n[bold]{d.name}[/]  {escape(d.doc or '')}")
-        console.print(f"    {d.full_statement}", markup=False, highlight=False)
+        console.print(f"\n[bold]{d.id}[/]  {escape(d.english or '')}")
+        console.print(f"    {d.shown}", markup=False, highlight=False)
     if typer.prompt("\nType 'approve' to confirm") != "approve":
         _fail(as_json, "not approved")
     for d, _ in chosen:
         store.approve(
             qualname=fid,
-            property_id=d.name,
-            statement=d.full_statement,
+            property_id=d.id,
+            statement=d.statement,
             function_sha256=info.sha256,
             statement_sha256=d.statement_sha256,
             reviewer=reviewer,
         )
-    console.print(f"[green]approved[/] {', '.join(d.name for d, _ in chosen)} in {store.path}")
+    console.print(f"[green]approved[/] {', '.join(d.id for d, _ in chosen)} in {store.path}")
 
 
 def _last_report(as_json: bool) -> "Report":
@@ -798,6 +888,84 @@ mcp_app = typer.Typer(
 app.add_typer(mcp_app, name="mcp")
 skill_app = typer.Typer(help="The apex-verify Agent Skill.", no_args_is_help=True)
 app.add_typer(skill_app, name="skill")
+tla_app = typer.Typer(
+    help="TLA+ for concurrent code Lean cannot model (evidence: model_checked, never proven).",
+    no_args_is_help=True,
+)
+app.add_typer(tla_app, name="tla")
+
+
+@tla_app.command("check")
+def tla_check(
+    target: Target,
+    runs: Annotated[int, typer.Option(help="Scheduled runs of the real code.")] = 200,
+    run_timeout: Annotated[
+        float, typer.Option(help="Seconds per run before it counts as hung.")
+    ] = 10.0,
+    as_json: JsonFlag = False,
+) -> None:
+    """TLC on the function's TLA+ bundle, then its real runs against the spec.
+
+    Records the result for `verify`. Exit 1 if an invariant broke in a real run or a run is not a
+    behavior of the spec, 2 otherwise (model_checked is evidence, a gap), 3 on a tool error.
+    """
+    from apex import pipeline
+
+    with _tool_errors(as_json):
+        result = pipeline.tla_check_target(
+            target, _workspace(as_json), runs=runs, run_timeout_s=run_timeout
+        )
+    failed = any(r.observed or r.evidence.rejected_trace for r in result.invariants.values())
+    if as_json:
+        typer.echo(result.model_dump_json(indent=2))
+    else:
+        console.print(
+            f"  {result.runs} runs, {result.traces_checked} distinct traces checked by TLC"
+            + (f"; {escape(result.note)}" if result.note else "")
+        )
+        for pid, r in result.invariants.items():
+            e = r.evidence
+            if r.observed:
+                run_no = r.observed.inputs["run"]
+                msg = f"[red]broke in run {run_no}[/]: {escape(r.observed.actual or '')}"
+            elif e.rejected_trace:
+                steps = len(e.rejected_trace)
+                msg = f"[red]a run is not a behavior of the spec[/] ({steps} states)"
+            elif r.error:
+                msg = f"[yellow]not checked[/]: {escape(r.error)}"
+            elif e.tlc_trace:
+                msg = (
+                    f"[yellow]TLC: violated in {len(e.tlc_trace)} steps[/], not seen in the "
+                    "real runs"
+                )
+            else:
+                msg = f"[cyan]no violation[/] in {e.distinct_states:,} states; runs conform"
+            console.print(f"  {pid}  {msg}")
+    raise typer.Exit(ExitCode.FAILURE if failed else ExitCode.GAPS)
+
+
+@tla_app.command("draft")
+def tla_draft(
+    target: Target,
+    provider: ProviderOpt = None,
+    force: Annotated[bool, typer.Option(help="Replace an existing bundle.")] = False,
+    as_json: JsonFlag = False,
+) -> None:
+    """A model drafts the function's TLA+ bundle (Spec.tla, Spec.cfg, harness.py) for review."""
+    from apex import pipeline
+
+    with _tool_errors(as_json):
+        out = pipeline.tla_draft_target(target, _workspace(as_json), provider=provider, force=force)
+    if as_json:
+        from apex.core.outputs import TlaDraftResult
+
+        typer.echo(TlaDraftResult(target=target, bundle=str(out)).model_dump_json(indent=2))
+    else:
+        console.print(
+            f"  drafted {out}: read Spec.tla, Spec.cfg and harness.py, then "
+            f"`apex review {target}` and `apex tla check {target}`"
+        )
+
 
 HarnessOpt = Annotated[
     list[str] | None,

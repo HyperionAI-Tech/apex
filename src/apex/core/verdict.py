@@ -21,6 +21,13 @@ class Verdict(StrEnum):
     """Budget exhausted with no counterexample found."""
     OUT_OF_SCOPE = "out_of_scope"
     """Impure or unsupported construct; the reason and any pure core are reported."""
+    FUZZED = "fuzzed"
+    """No counterexample in a recorded fuzzing campaign on the real Python. Evidence, not proof:
+    only given where Lean could not decide (unproven or out of scope)."""
+    MODEL_CHECKED = "model_checked"
+    """TLC exhausted the bounded state space of the function's TLA+ spec without a violation, and
+    recorded runs of the real code conform to the spec. Evidence about a bounded abstraction, not
+    a proof about the code."""
 
 
 # Invariant 1: only the Lean verdict path may emit these. Enforced where verdicts are assigned.
@@ -36,8 +43,13 @@ GAP_VERDICTS = frozenset(
         Verdict.OUT_OF_SCOPE,
         Verdict.PROVEN_UNREVIEWED,
         Verdict.PROVEN_CONDITIONAL,
+        Verdict.FUZZED,
+        Verdict.MODEL_CHECKED,
     }
 )
+
+EVIDENCE_VERDICTS = frozenset({Verdict.FUZZED, Verdict.MODEL_CHECKED})
+"""Verdicts from outside Lean that a clean campaign earns. Gaps: they never make exit 0."""
 
 
 class ReasonCode(StrEnum):
@@ -49,11 +61,16 @@ class ReasonCode(StrEnum):
     SPEC_AMBIGUOUS = "SPEC_AMBIGUOUS"
     SPEC_CONFLICT = "SPEC_CONFLICT"
     NEEDS_CONCURRENCY_TOOL = "NEEDS_CONCURRENCY_TOOL"
-    """Recommends TLA+; Apex does not integrate it."""
+    """Concurrency Lean cannot model: check it against a TLA+ spec (`apex tla`)."""
     PROOF_REJECTED = "PROOF_REJECTED"
     """Lean rejected the submitted proof (errors, or a disallowed axiom)."""
     NO_STATEMENT = "NO_STATEMENT"
     """The property has no Lean statement yet."""
+    SPEC_VIOLATION_NOT_REPRODUCED = "SPEC_VIOLATION_NOT_REPRODUCED"
+    """TLC found a violation in the TLA+ spec, but stress runs of the real code did not show it:
+    the spec may over-approximate the code, or the schedule is rare."""
+    MODEL_CHECK_FAILED = "MODEL_CHECK_FAILED"
+    """TLC could not check the spec (parse or semantic error, or its budget ran out)."""
 
 
 class ExitCode(IntEnum):
@@ -62,7 +79,8 @@ class ExitCode(IntEnum):
     FAILURE = 1
     """Any refuted, fidelity_failed or contradiction."""
     GAPS = 2
-    """Gaps only: unproven, out_of_scope, proven_unreviewed, proven_conditional."""
+    """Gaps only: unproven, out_of_scope, proven_unreviewed, proven_conditional, fuzzed,
+    model_checked."""
     TOOL_ERROR = 3
     """Lean missing, timeout of the whole run, bad config."""
 

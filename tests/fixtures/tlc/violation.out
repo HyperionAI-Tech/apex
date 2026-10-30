@@ -1,0 +1,575 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 74 and seed 6358716387574409294 with 1 worker on 8 cores with 1820MB heap and 64MB offheap memory [pid: N] (Mac OS X 27.2 aarch64, Homebrew 17.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file Counter.tla
+Parsing file Naturals.tla
+Parsing file Sequences.tla
+Parsing file TLC.tla
+Parsing file FiniteSets.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Counter
+Starting... (TIME)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-30 17:02:34.
+Error: Invariant NoLostUpdate is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ i = <<0, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 2: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 3: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 4: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 5: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 6: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 7: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Write", "Read">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 8: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Write", "Write">>
+/\ count = 1
+/\ tmp = <<1, 1>>
+
+State 9: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 0>>
+/\ pc = <<"Loop", "Write">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 10: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 0>>
+/\ pc = <<"Done", "Write">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 11: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Done", "Loop">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 12: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Done", "Read">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 13: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Done", "Write">>
+/\ count = 2
+/\ tmp = <<1, 2>>
+
+State 14: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Loop">>
+/\ count = 3
+/\ tmp = <<1, 2>>
+
+State 15: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Done">>
+/\ count = 3
+/\ tmp = <<1, 2>>
+
+Error: Invariant NoLostUpdate is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ i = <<0, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 2: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 3: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 4: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 5: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 6: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 7: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Write", "Read">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 8: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Write", "Write">>
+/\ count = 1
+/\ tmp = <<1, 1>>
+
+State 9: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 10: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Write", "Read">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 11: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Write", "Write">>
+/\ count = 2
+/\ tmp = <<1, 2>>
+
+State 12: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 2>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 3
+/\ tmp = <<1, 2>>
+
+State 13: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 2
+/\ tmp = <<1, 2>>
+
+State 14: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Loop">>
+/\ count = 2
+/\ tmp = <<1, 2>>
+
+State 15: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Done">>
+/\ count = 2
+/\ tmp = <<1, 2>>
+
+Error: Invariant NoLostUpdate is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ i = <<0, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 2: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 3: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 4: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 5: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 6: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Read", "Read">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 7: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Read", "Write">>
+/\ count = 1
+/\ tmp = <<0, 1>>
+
+State 8: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 2
+/\ tmp = <<0, 1>>
+
+State 9: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 2
+/\ tmp = <<2, 1>>
+
+State 10: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Write", "Read">>
+/\ count = 2
+/\ tmp = <<2, 1>>
+
+State 11: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Write", "Write">>
+/\ count = 2
+/\ tmp = <<2, 2>>
+
+State 12: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Loop", "Write">>
+/\ count = 3
+/\ tmp = <<2, 2>>
+
+State 13: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Done", "Write">>
+/\ count = 3
+/\ tmp = <<2, 2>>
+
+State 14: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Loop">>
+/\ count = 3
+/\ tmp = <<2, 2>>
+
+State 15: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Done">>
+/\ count = 3
+/\ tmp = <<2, 2>>
+
+Error: Invariant NoLostUpdate is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ i = <<0, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 2: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 3: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 4: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Read">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 5: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Write">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 6: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Loop", "Write">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 7: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Read", "Write">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 8: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Write", "Write">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 9: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 0>>
+/\ pc = <<"Loop", "Write">>
+/\ count = 2
+/\ tmp = <<1, 0>>
+
+State 10: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 0>>
+/\ pc = <<"Done", "Write">>
+/\ count = 2
+/\ tmp = <<1, 0>>
+
+State 11: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Done", "Loop">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 12: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Done", "Read">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 13: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Done", "Write">>
+/\ count = 1
+/\ tmp = <<1, 1>>
+
+State 14: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Loop">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 15: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Done">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+Error: Invariant NoLostUpdate is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ i = <<0, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 2: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 3: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 4: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Read">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 5: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Write", "Write">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 6: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Loop", "Write">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 7: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 0>>
+/\ pc = <<"Read", "Write">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 8: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 9: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Read", "Read">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 10: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Read", "Write">>
+/\ count = 1
+/\ tmp = <<0, 1>>
+
+State 11: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 2>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 2
+/\ tmp = <<0, 1>>
+
+State 12: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 2>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 2
+/\ tmp = <<2, 1>>
+
+State 13: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 3
+/\ tmp = <<2, 1>>
+
+State 14: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Loop">>
+/\ count = 3
+/\ tmp = <<2, 1>>
+
+State 15: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Done">>
+/\ count = 3
+/\ tmp = <<2, 1>>
+
+Error: Invariant NoLostUpdate is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ i = <<0, 0>>
+/\ pc = <<"Loop", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 2: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 3: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Read", "Read">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 4: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 0>>
+/\ pc = <<"Read", "Write">>
+/\ count = 0
+/\ tmp = <<0, 0>>
+
+State 5: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<0, 1>>
+/\ pc = <<"Read", "Loop">>
+/\ count = 1
+/\ tmp = <<0, 0>>
+
+State 6: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 1>>
+/\ pc = <<"Write", "Loop">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 7: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<0, 1>>
+/\ pc = <<"Write", "Read">>
+/\ count = 1
+/\ tmp = <<1, 0>>
+
+State 8: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<0, 1>>
+/\ pc = <<"Write", "Write">>
+/\ count = 1
+/\ tmp = <<1, 1>>
+
+State 9: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Loop", "Write">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 10: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Read", "Write">>
+/\ count = 2
+/\ tmp = <<1, 1>>
+
+State 11: <Read line 37, col 15 to line 40, col 41 of module Counter>
+/\ i = <<1, 1>>
+/\ pc = <<"Write", "Write">>
+/\ count = 2
+/\ tmp = <<2, 1>>
+
+State 12: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Loop", "Write">>
+/\ count = 3
+/\ tmp = <<2, 1>>
+
+State 13: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 1>>
+/\ pc = <<"Done", "Write">>
+/\ count = 3
+/\ tmp = <<2, 1>>
+
+State 14: <Write line 42, col 16 to line 46, col 28 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Loop">>
+/\ count = 2
+/\ tmp = <<2, 1>>
+
+State 15: <Loop line 31, col 15 to line 35, col 46 of module Counter>
+/\ i = <<2, 2>>
+/\ pc = <<"Done", "Done">>
+/\ count = 2
+/\ tmp = <<2, 1>>
+
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 1.4E-15
+325 states generated, 201 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 15.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 2 and the 95th percentile is 2).
+Finished in 00s at (TIME)

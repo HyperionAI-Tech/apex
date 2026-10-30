@@ -31,7 +31,9 @@
           "enum": [
             "crosshair",
             "hypothesis",
-            "example"
+            "example",
+            "fuzz",
+            "stress"
           ],
           "title": "Found By",
           "type": "string"
@@ -185,6 +187,78 @@
       "title": "FunctionResult",
       "type": "object"
     },
+    "FuzzEvidence": {
+      "additionalProperties": false,
+      "description": "One property's fuzzing campaign, as `apex fuzz` recorded it.",
+      "properties": {
+        "engine": {
+          "enum": [
+            "hypothesis",
+            "atheris"
+          ],
+          "title": "Engine",
+          "type": "string"
+        },
+        "executions": {
+          "title": "Executions",
+          "type": "integer"
+        },
+        "found": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Counterexample"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "function_sha256": {
+          "title": "Function Sha256",
+          "type": "string"
+        },
+        "hint": {
+          "title": "Hint",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "property_id": {
+          "title": "Property Id",
+          "type": "string"
+        },
+        "seconds": {
+          "title": "Seconds",
+          "type": "number"
+        },
+        "skipped": {
+          "default": 0,
+          "title": "Skipped",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "property_id",
+        "hint",
+        "function_sha256",
+        "engine",
+        "executions",
+        "seconds"
+      ],
+      "title": "FuzzEvidence",
+      "type": "object"
+    },
     "Gap": {
       "additionalProperties": false,
       "properties": {
@@ -252,6 +326,123 @@
       "title": "LeanError",
       "type": "object"
     },
+    "ModelCheckEvidence": {
+      "additionalProperties": false,
+      "description": "One TLA+ invariant: TLC's check of the spec plus the conformance of the real code.",
+      "properties": {
+        "constants": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Constants",
+          "type": "object"
+        },
+        "depth": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Depth"
+        },
+        "distinct_states": {
+          "default": 0,
+          "title": "Distinct States",
+          "type": "integer"
+        },
+        "function_sha256": {
+          "title": "Function Sha256",
+          "type": "string"
+        },
+        "invariant": {
+          "title": "Invariant",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "property_id": {
+          "title": "Property Id",
+          "type": "string"
+        },
+        "rejected_trace": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejected Trace"
+        },
+        "runs": {
+          "default": 0,
+          "title": "Runs",
+          "type": "integer"
+        },
+        "spec_sha256": {
+          "title": "Spec Sha256",
+          "type": "string"
+        },
+        "states_generated": {
+          "default": 0,
+          "title": "States Generated",
+          "type": "integer"
+        },
+        "tlc_trace": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tlc Trace"
+        },
+        "traces_checked": {
+          "default": 0,
+          "title": "Traces Checked",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "property_id",
+        "invariant",
+        "spec_sha256",
+        "function_sha256"
+      ],
+      "title": "ModelCheckEvidence",
+      "type": "object"
+    },
     "ProofArtifact": {
       "additionalProperties": false,
       "properties": {
@@ -300,6 +491,17 @@
           ],
           "default": null
         },
+        "fuzz": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuzzEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "gap": {
           "anyOf": [
             {
@@ -333,6 +535,17 @@
           ],
           "default": null,
           "title": "Lean Statement"
+        },
+        "model_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelCheckEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "proof": {
           "anyOf": [
@@ -413,7 +626,9 @@
         "SPEC_CONFLICT",
         "NEEDS_CONCURRENCY_TOOL",
         "PROOF_REJECTED",
-        "NO_STATEMENT"
+        "NO_STATEMENT",
+        "SPEC_VIOLATION_NOT_REPRODUCED",
+        "MODEL_CHECK_FAILED"
       ],
       "title": "ReasonCode",
       "type": "string"
@@ -471,7 +686,9 @@
         "fidelity_failed",
         "contradiction",
         "unproven",
-        "out_of_scope"
+        "out_of_scope",
+        "fuzzed",
+        "model_checked"
       ],
       "title": "Verdict",
       "type": "string"

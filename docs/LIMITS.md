@@ -56,7 +56,7 @@ The translator accepts a deliberately small subset. Anything outside it makes th
 | local variables, `out.append(...)` on a local list | module-level constants and globals; mutating an argument (`IMPURE_IO`) |
 | leading `assert`s (as preconditions) | `assert` later in the body, `raise`, `try` |
 | | recursion, in practice: Lean's automatic termination check does not see that `n - 1`, `a % b` or `xs[1:]` decreases (`NONTERMINATION`); use a `for` loop |
-| | I/O, randomness, clocks (`IMPURE_IO`), threads (`NEEDS_CONCURRENCY_TOOL`), `async` |
+| | I/O, randomness, clocks (`IMPURE_IO`), threads (`NEEDS_CONCURRENCY_TOOL`: see TLA+ below), `async` |
 | | Python truthiness of lists (`if xs:`): compare explicitly, `len(xs) == 0` |
 
 Many of these are fixable by rewriting. `for i in range(n)` instead of `while`, and an
@@ -66,8 +66,8 @@ line and suggests the rewrite.
 How much real code is in the subset? In the eval corpus, ten functions were written by Claude
 Code and Codex from one-line prompts and left unedited. Only 3 of the 10 fall in the subset.
 The rest use early returns, indexing, `while`, truthiness, `None` as a running value, or
-`raise`. For those, Apex's answer is refutation (no counterexample was found, and all ten are in
-fact correct), not proof. Writing code to the subset is a choice you make; Apex will not
+`raise`. For those, Apex's answer is refutation and a fuzzing campaign (no counterexample, and all ten
+are in fact correct): `fuzzed`, not `proven`. Writing code to the subset is a choice you make; Apex will not
 silently approximate code outside it.
 
 ## What refutation can and cannot say
@@ -91,6 +91,51 @@ Some inputs are skipped rather than reported, and the skip is noted on the prope
 A function that only goes wrong on inputs that are huge, deeply recursive, or slow can
 therefore pass refutation.
 
+## Evidence from outside Lean
+
+`fuzzed` and `model_checked` exist for code Lean cannot model. Both are gaps (exit 2): they
+never pass a CI gate that requires proof, and they never turn into `proven`.
+
+**`fuzzed`** means one recorded campaign tried N inputs and found no counterexample:
+
+- It says nothing about inputs the campaign never generated. Integers are drawn mostly small;
+  a bug that needs a specific large value can be missed.
+- It is only as good as the property's hint. A vacuous hint (`r == r`) fuzzes clean.
+- It inherits refutation's skips: inputs past the recursion limit or the per-call time budget are
+  left out (the count is in the evidence).
+- Measured on this machine (macOS, Python 3.12, Atheris 3.0 built with Homebrew LLVM 14), as
+  tested in the corpus:
+  - **Hypothesis.** About 1,000 executions per second on simple integer code.
+  - **Atheris.** About 13,000 per second on the same code.
+  - **Exact-value needles.** On branches that compare exact values (`xs[0] == 17 and xs[1] ==
+    42 ...`), neither fuzzer beat CrossHair, which refutation already runs.
+  - **Where campaigns help.** Bugs that symbolic execution cannot invert, such as a sentinel
+    behind `pow(total, 5, 10007) == 1234`. Default refutation misses it. Atheris found it in
+    about 2 s, and Hypothesis in about 13,000 executions.
+  - **When they miss.** A 20-second Hypothesis campaign on the same bug ran only 6,423
+    executions on a busy machine, found nothing, and reported `fuzzed`. The corpus gives that
+    case 60 s. This is the reason `fuzzed` is a gap and never a pass.
+
+**`model_checked`** means TLC exhausted the spec's state space *within the bounds in Spec.cfg*,
+and every distinct run Apex recorded of the real code was a behavior of the spec:
+
+- **Bounds.** Two threads and two iterations is not N threads. Larger bounds can hold
+  violations the bounded check never reaches.
+- **Recorded runs are samples.** Varying the schedule makes rare interleavings more likely to
+  show up, but cannot force every one.
+- **Observation granularity.** Apex snapshots shared state between lines of the code. A single
+  line that changes two observed variables shows up as one jump, which the spec must allow as
+  one step.
+- **The harness is trusted.** If `observe()` reports the wrong thing, conformance is checked
+  against the wrong thing. That is why the harness is part of the approved bundle, and any edit
+  voids the approval.
+- **Invariants only.** Temporal properties (`PROPERTY` in Spec.cfg) are not checked.
+- **What the hash covers.** Evidence lapses when the function's source or any bundle file
+  changes, but not when a helper class it uses changes.
+- **TLC's own violations do not refute.** A violation TLC finds in the spec counts only once a
+  real run shows it (`check_<Name>` in the harness). Otherwise it stays a gap that carries TLC's
+  trace.
+
 ## What the intent sources can and cannot give
 
 - An English requirement without a formal hint in backticks stays text-only (`SPEC_AMBIGUOUS`)
@@ -107,7 +152,7 @@ therefore pass refutation.
 ## Out of scope for this version
 
 - Languages other than Python (JavaScript and TypeScript are planned, not built).
-- Impure code: I/O, concurrency and floating point are reported, with a recommendation where
-  one exists (for example TLA+ for concurrency), but not modelled.
+- Impure code beyond concurrency: I/O and floating point are reported, not modelled. Concurrency
+  gets TLA+ bundles (evidence, above), not proofs.
 - A second proof backend (SMT) or regression detection on previously proven code.
 - Lean and Mathlib are pinned. Upgrading them is a deliberate change, re-run against the corpus.

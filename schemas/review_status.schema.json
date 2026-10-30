@@ -18,9 +18,26 @@
           "title": "Id",
           "type": "string"
         },
-        "lean": {
-          "title": "Lean",
+        "kind": {
+          "default": "lean",
+          "enum": [
+            "lean",
+            "tla"
+          ],
+          "title": "Kind",
           "type": "string"
+        },
+        "lean": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lean"
         },
         "reviewer": {
           "anyOf": [
@@ -42,11 +59,22 @@
           ],
           "title": "Status",
           "type": "string"
+        },
+        "tla": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tla"
         }
       },
       "required": [
         "id",
-        "lean",
         "status"
       ],
       "title": "ReviewEntry",

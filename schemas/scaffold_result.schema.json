@@ -36,7 +36,9 @@
         "SPEC_CONFLICT",
         "NEEDS_CONCURRENCY_TOOL",
         "PROOF_REJECTED",
-        "NO_STATEMENT"
+        "NO_STATEMENT",
+        "SPEC_VIOLATION_NOT_REPRODUCED",
+        "MODEL_CHECK_FAILED"
       ],
       "title": "ReasonCode",
       "type": "string"

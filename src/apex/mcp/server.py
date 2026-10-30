@@ -26,9 +26,11 @@ from apex import __version__
 from apex.core.intent import IntentModel
 from apex.core.outputs import ReviewStatus
 from apex.core.report import FunctionResult, Report
+from apex.fidelity.fuzz import FuzzResult
 from apex.fidelity.refute import RefuteResult
 from apex.intent.proposals import ProposalCheck, ProposalSet
 from apex.report.explain import AdviceList, advise
+from apex.tla.check import TlaCheckResult
 
 INSTRUCTIONS = """\
 Apex formally verifies pure Python functions with Lean 4. Targets look like `path.py::function`.
@@ -147,6 +149,36 @@ def build_server() -> MCPServer:
         from apex import pipeline
 
         return _run(lambda: pipeline.refute_target(target, _ws(), properties))
+
+    @server.tool()
+    def apex_fuzz(
+        target: str,
+        properties: list[str] | None = None,
+        seconds: float | None = None,
+        engine: Literal["hypothesis", "atheris"] | None = None,
+    ) -> FuzzResult:
+        """Fuzz the real Python for `seconds` per property (default: fuzz_budget_s) and record
+        the campaign. apex_verify then reports a property Lean could not decide as `fuzzed`
+        (evidence, never proof), or `refuted` if a counterexample was found and replays."""
+        from apex import pipeline
+
+        return _run(
+            lambda: pipeline.fuzz_target(
+                target, _ws(), ids=properties, budget_s=seconds, engine=engine
+            )
+        )
+
+    @server.tool()
+    def apex_tla_check(target: str, runs: int = 200) -> TlaCheckResult:
+        """Concurrent code: run TLC on the function's TLA+ bundle and check recorded runs of the
+        real code against the spec. The bundle lives in .apex/tla/<module>/<function>/ as
+        Spec.tla (module Spec), Spec.cfg (CONSTANTS bounds, INVARIANTs) and harness.py
+        (setup/run/observe, optional check_<Invariant>(obs, done)). In host mode, write the
+        bundle there yourself; it still needs a person's approval (`apex review`). Results are
+        evidence (`model_checked`), never `proven`."""
+        from apex import pipeline
+
+        return _run(lambda: pipeline.tla_check_target(target, _ws(), runs=runs))
 
     @server.tool()
     def apex_check(paths: list[str], include_private: bool = False) -> Report:

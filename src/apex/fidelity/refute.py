@@ -89,6 +89,12 @@ class _Check:
     found: Counterexample | None = None
     note: str | None = None
     slow: int = 0
+    max_slow: int = MAX_SLOW
+    """Slow calls after which this check stops calling the function (a campaign sets it high)."""
+    calls: int = 0
+    """Calls into the function that passed the preconditions."""
+    skipped: int = 0
+    """Calls left out at a resource limit (recursion depth, time)."""
 
 
 def _call(fn: Any, args: tuple[Any, ...]) -> tuple[Any, str | None]:
@@ -108,11 +114,11 @@ def _violation(
     names: list[str],
     args: tuple[Any, ...],
     ns: dict[str, Any],
-    by: Literal["crosshair", "hypothesis", "example"],
+    by: Literal["crosshair", "hypothesis", "example", "fuzz"],
 ) -> Counterexample | None:
     """Replay `args` on the real function: a counterexample if (and only if) it breaks `c`."""
     env = dict(zip(names, args, strict=True))
-    if c.slow >= MAX_SLOW:
+    if c.slow >= c.max_slow:
         return None
     try:
         if not all(evaluate(p, env, ns) for p in c.pres):
@@ -122,9 +128,11 @@ def _violation(
     except HintEvalError:
         return None
     value, error = _call(fn, args)
+    c.calls += 1
     inputs = {k: repr(v) for k, v in env.items()}
     if error in (RECURSION_LIMIT, TIMED_OUT):
         c.slow += error == TIMED_OUT
+        c.skipped += 1
         c.note = _skip_note(error, inputs)
         return None
     if error is not None:
@@ -292,6 +300,56 @@ def _crosshair(
         c.found = _violation(c, fn, names, args, ns, "crosshair")
 
 
+@dataclass
+class CheckTarget:
+    """The real function, its module's helpers, and one check per property with a hint."""
+
+    fn: Any
+    ns: dict[str, Any]
+    checks: list[_Check]
+    examples: list[str]
+    """Example properties, which are checked by running the one input they state."""
+    skipped: dict[str, PropertyRefutation]
+    """Properties with nothing to check, each with the reason."""
+
+
+def load_checks(
+    info: FunctionInfo, intent: IntentModel, names: list[str], ids: list[str] | None = None
+) -> CheckTarget:
+    """Import the module fresh and build a check per property (`ids`, default all). Shared by
+    refutation and fuzzing, so both filter by the same preconditions and replay the same way."""
+    module = load_module(info)
+    fn = getattr(module, info.qualname)
+    ns = {h: getattr(module, h) for h in module_functions(info) if hasattr(module, h)}
+    helpers = set(ns)
+    conflicted = {pid for c in intent.conflicts for pid in c.property_ids}
+    pres: list[ast.expr] = []
+    for c in intent.preconditions:
+        if c.formal_hint:
+            with contextlib.suppress(HintError):
+                pres.append(parse_condition(c.formal_hint, names, helpers))
+    out = CheckTarget(fn=fn, ns=ns, checks=[], examples=[], skipped={})
+    for p in intent.properties:
+        if ids is not None and p.id not in ids:
+            continue
+        if p.id in conflicted:
+            out.skipped[p.id] = PropertyRefutation(
+                id=p.id, refuted=False, note="intent sources conflict; not checked"
+            )
+        elif p.kind == "example":
+            out.examples.append(p.id)
+        elif p.formal_hint:
+            try:
+                out.checks.append(_Check(p.id, parse_hint(p.formal_hint, names, helpers), pres))
+            except HintError as e:
+                out.skipped[p.id] = PropertyRefutation(id=p.id, refuted=False, note=str(e))
+        else:
+            out.skipped[p.id] = PropertyRefutation(
+                id=p.id, refuted=False, note="no formal hint to check"
+            )
+    return out
+
+
 @unbounded_int_digits()
 def refute(
     info: FunctionInfo,
@@ -311,7 +369,7 @@ def refute(
     """
     names = [p for p, _ in params]
     try:
-        module = load_module(info)
+        target = load_checks(info, intent, names, ids)
     except FidelityError as e:
         return RefuteResult(
             target=f"{info.path}::{info.qualname}",
@@ -319,36 +377,14 @@ def refute(
                 PropertyRefutation(id=p.id, refuted=False, note=str(e)) for p in intent.properties
             ],
         )
-    fn = getattr(module, info.qualname)
-    ns = {h: getattr(module, h) for h in module_functions(info) if hasattr(module, h)}
-    helpers = set(ns)
-    conflicted = {pid for c in intent.conflicts for pid in c.property_ids}
-    pres: list[ast.expr] = []
-    for c in intent.preconditions:
-        if c.formal_hint:
-            with contextlib.suppress(HintError):
-                pres.append(parse_condition(c.formal_hint, names, helpers))
-
-    results: dict[str, PropertyRefutation] = {}
-    checks: list[_Check] = []
-    for p in intent.properties:
-        if ids is not None and p.id not in ids:
-            continue
-        if p.id in conflicted:
-            results[p.id] = PropertyRefutation(
-                id=p.id, refuted=False, note="intent sources conflict; not checked"
-            )
-        elif p.kind == "example" and p.id in examples:
-            results[p.id] = _example_check(p.id, examples[p.id], fn, names)
-        elif p.formal_hint:
-            try:
-                checks.append(_Check(p.id, parse_hint(p.formal_hint, names, helpers), pres))
-            except HintError as e:
-                results[p.id] = PropertyRefutation(id=p.id, refuted=False, note=str(e))
-        else:
-            results[p.id] = PropertyRefutation(
-                id=p.id, refuted=False, note="no formal hint to check"
-            )
+    fn, ns, checks = target.fn, target.ns, target.checks
+    results = dict(target.skipped)
+    for pid in target.examples:
+        results[pid] = (
+            _example_check(pid, examples[pid], fn, names)
+            if pid in examples
+            else PropertyRefutation(id=pid, refuted=False, note="the example's input is unknown")
+        )
 
     for c in checks:
         # Examples double as cheap targeted inputs for every property.

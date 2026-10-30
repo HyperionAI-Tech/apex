@@ -67,3 +67,18 @@ def binary_search(xs: list[int], t: int) -> int:
         else:
             hi = mid - 1
     return -1
+
+
+def mix(n: int) -> int:
+    """A non-negative mixing of n's digits.
+
+    pre: n >= 0
+    post: __return__ >= 0
+    """
+    total = 0
+    while n > 0:
+        total = (total * 31 + n % 10) % 10007
+        n //= 10
+    if pow(total, 5, 10007) == 1234:
+        return -1  # BUG: a leftover sentinel; random testing and CrossHair rarely reach it
+    return total

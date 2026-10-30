@@ -21,6 +21,8 @@ TOOLS = {
     "apex_prove",
     "apex_verify",
     "apex_refute",
+    "apex_fuzz",
+    "apex_tla_check",
     "apex_check",
     "apex_explain",
     "apex_suggest",

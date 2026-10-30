@@ -19,6 +19,8 @@ STYLE = {
     Verdict.CONTRADICTION: "bold red",
     Verdict.UNPROVEN: "yellow",
     Verdict.OUT_OF_SCOPE: "dim",
+    Verdict.FUZZED: "cyan",
+    Verdict.MODEL_CHECKED: "cyan",
 }
 
 
@@ -34,6 +36,27 @@ def detail(p: PropertyResult, target: str = "<target>") -> str:
             return f"statement {status}: run `apex review {target} --approve {p.id}` in a terminal"
         case Verdict.PROVEN_CONDITIONAL:
             return "under added precondition(s): " + "; ".join(p.added_preconditions)
+        case Verdict.FUZZED if p.fuzz:
+            z = p.fuzz
+            skipped = f", {z.skipped} skipped" if z.skipped else ""
+            return (
+                f"no counterexample in {z.executions:,} executions ({z.engine}, "
+                f"{z.seconds:.0f}s{skipped}); not a proof"
+            )
+        case Verdict.MODEL_CHECKED if p.model_check:
+            m = p.model_check
+            bounds = ", ".join(f"{k}={v}" for k, v in m.constants.items()) or "as configured"
+            pending = "" if p.review and p.review.status == "approved" else "; spec not approved"
+            return (
+                f"TLC: {m.distinct_states:,} states ({bounds}); {m.traces_checked} recorded "
+                f"traces conform{pending}; not a proof"
+            )
+        case Verdict.FIDELITY_FAILED if p.model_check and p.model_check.rejected_trace:
+            steps = len(p.model_check.rejected_trace)
+            return f"the code produced a {steps}-step trace the TLA+ spec does not allow"
+        case Verdict.REFUTED if p.counterexample and p.counterexample.found_by == "stress":
+            c = p.counterexample
+            return f"{c.expected} broke in a real run (run {c.inputs.get('run', '?')}): {c.actual}"
         case Verdict.REFUTED | Verdict.FIDELITY_FAILED if p.counterexample:
             c = p.counterexample
             args = ", ".join(f"{k}={v}" for k, v in c.inputs.items())

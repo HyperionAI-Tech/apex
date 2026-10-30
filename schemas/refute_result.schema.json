@@ -31,7 +31,9 @@
           "enum": [
             "crosshair",
             "hypothesis",
-            "example"
+            "example",
+            "fuzz",
+            "stress"
           ],
           "title": "Found By",
           "type": "string"

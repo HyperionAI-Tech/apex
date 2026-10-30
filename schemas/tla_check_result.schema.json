@@ -1,0 +1,271 @@
+{
+  "$defs": {
+    "Counterexample": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "found_by": {
+          "enum": [
+            "crosshair",
+            "hypothesis",
+            "example",
+            "fuzz",
+            "stress"
+          ],
+          "title": "Found By",
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "inputs",
+        "found_by"
+      ],
+      "title": "Counterexample",
+      "type": "object"
+    },
+    "InvariantResult": {
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "evidence": {
+          "$ref": "#/$defs/ModelCheckEvidence"
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Counterexample"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "evidence"
+      ],
+      "title": "InvariantResult",
+      "type": "object"
+    },
+    "ModelCheckEvidence": {
+      "additionalProperties": false,
+      "description": "One TLA+ invariant: TLC's check of the spec plus the conformance of the real code.",
+      "properties": {
+        "constants": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Constants",
+          "type": "object"
+        },
+        "depth": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Depth"
+        },
+        "distinct_states": {
+          "default": 0,
+          "title": "Distinct States",
+          "type": "integer"
+        },
+        "function_sha256": {
+          "title": "Function Sha256",
+          "type": "string"
+        },
+        "invariant": {
+          "title": "Invariant",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "property_id": {
+          "title": "Property Id",
+          "type": "string"
+        },
+        "rejected_trace": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejected Trace"
+        },
+        "runs": {
+          "default": 0,
+          "title": "Runs",
+          "type": "integer"
+        },
+        "spec_sha256": {
+          "title": "Spec Sha256",
+          "type": "string"
+        },
+        "states_generated": {
+          "default": 0,
+          "title": "States Generated",
+          "type": "integer"
+        },
+        "tlc_trace": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tlc Trace"
+        },
+        "traces_checked": {
+          "default": 0,
+          "title": "Traces Checked",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "property_id",
+        "invariant",
+        "spec_sha256",
+        "function_sha256"
+      ],
+      "title": "ModelCheckEvidence",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "conformance_error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conformance Error"
+    },
+    "hung": {
+      "default": 0,
+      "title": "Hung",
+      "type": "integer"
+    },
+    "invariants": {
+      "additionalProperties": {
+        "$ref": "#/$defs/InvariantResult"
+      },
+      "title": "Invariants",
+      "type": "object"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "runs": {
+      "default": 0,
+      "title": "Runs",
+      "type": "integer"
+    },
+    "spec_sha256": {
+      "title": "Spec Sha256",
+      "type": "string"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    },
+    "traces_checked": {
+      "default": 0,
+      "title": "Traces Checked",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "target",
+    "spec_sha256"
+  ],
+  "title": "TlaCheckResult",
+  "type": "object"
+}

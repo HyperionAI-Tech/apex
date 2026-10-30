@@ -26,6 +26,8 @@ _KIND_LEVEL: dict[Verdict, tuple[str, str]] = {
     Verdict.CONTRADICTION: ("fail", "error"),
     Verdict.UNPROVEN: ("fail", "warning"),
     Verdict.OUT_OF_SCOPE: ("notApplicable", "none"),
+    Verdict.FUZZED: ("review", "note"),
+    Verdict.MODEL_CHECKED: ("review", "note"),
 }
 
 
