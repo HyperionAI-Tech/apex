@@ -120,6 +120,12 @@ def init(
         bool,
         typer.Option("--tla", help="Also install the pinned TLA+ tools (TLC; needs Java 11+)."),
     ] = False,
+    js: Annotated[
+        bool,
+        typer.Option(
+            "--js", help="Also install the pinned Jazzer.js for JavaScript fuzzing (needs npm)."
+        ),
+    ] = False,
 ) -> None:
     """Write apex.toml, then fetch the pinned Lean toolchain and the prebuilt Mathlib cache."""
     steps: list[dict] = []
@@ -186,6 +192,16 @@ def init(
             _emit_init(as_json, steps, str(e))
             raise typer.Exit(ExitCode.TOOL_ERROR) from None
         steps.append({"step": "tla_tools", "status": "ok", "path": str(jar)})
+    if js:
+        from apex.js.jazzer import JazzerUnavailable, install
+
+        try:
+            binary = install()
+        except JazzerUnavailable as e:
+            steps.append({"step": "jazzer", "status": "failed"})
+            _emit_init(as_json, steps, str(e))
+            raise typer.Exit(ExitCode.TOOL_ERROR) from None
+        steps.append({"step": "jazzer", "status": "ok", "path": str(binary)})
     _emit_init(as_json, steps, None)
 
 
@@ -472,11 +488,20 @@ def fuzz(
         typer.Option("--seconds", "-s", help="Per property (default: fuzz_budget_s)."),
     ] = None,
     engine: Annotated[
-        str | None, typer.Option("--engine", help="hypothesis or atheris (default: config).")
+        str | None,
+        typer.Option("--engine", help="hypothesis, atheris or jazzer (default: config)."),
+    ] = None,
+    executions: Annotated[
+        int | None,
+        typer.Option(
+            "--executions",
+            help="Also stop after this many calls per property; Hypothesis campaigns are then "
+            "reproducible whatever the machine's load.",
+        ),
     ] = None,
     as_json: JsonFlag = False,
 ) -> None:
-    """Fuzz the real Python for a time budget per property and record the campaign.
+    """Fuzz the real code for a time budget per property and record the campaign.
 
     `verify` reads the record: a clean campaign turns a property Lean could not decide into
     `fuzzed` (evidence, not proof); a counterexample, replayed in Python, is `refuted`. Exit 1 on
@@ -494,6 +519,7 @@ def fuzz(
             ids=prop,
             budget_s=seconds,
             engine=engine,  # type: ignore[arg-type]
+            max_executions=executions,
         )
     found = [e for e in result.properties if e.found]
     if as_json:

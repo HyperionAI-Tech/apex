@@ -37,6 +37,7 @@ from equivalence import equivalent_pairs
 
 from apex.analyze.target import load_function
 from apex.core.verdict import EVIDENCE_VERDICTS, LEAN_ONLY_VERDICTS, Verdict
+from apex.js import is_js
 from apex.lean.project import LeanProject
 from apex.llm.providers import Provider
 from apex.pipeline import (
@@ -59,9 +60,9 @@ EQUIV_REVIEWER = "evals: equivalent to a reference statement"
 EXAMPLE_REVIEWER = "evals: literal example from a doctest or test"
 BUNDLE_REVIEWER = "evals: reference TLA+ bundle"
 CONFIG = "[apex]\nrefute_budget_s = 3\nllm_parallel = 2\n"
-_HOLDS = {"proven", "proven_unreviewed", "unproven"}
+_HOLDS = {"proven", "proven_unreviewed", "proven_conditional", "unproven"}
 """`holds`: the statement is true of this code. Proving it is right; failing to is a closure gap."""
-_MAY_PROVE = {"proven", "proven_unreviewed", "holds"}
+_MAY_PROVE = {"proven", "proven_unreviewed", "proven_conditional", "holds"}
 SOURCE_KINDS = {"spec": "english", "docstring": "docstring", "test": "tests", "source": "source"}
 STRICT = ("planted_bug", "conflict", "ai_generated", "concurrent")
 """Categories where anything proven must be expected proven (or holds)."""
@@ -166,8 +167,9 @@ def run_case(
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="apex-eval-") as tmp:
         work = Path(tmp)
-        for src in [*CORPUS.glob("*.py"), *CORPUS.glob("*.md")]:
-            shutil.copy(src, work / src.name)
+        for pattern in ("*.py", "*.md", "*.ts", "*.js", "*.mjs"):
+            for src in CORPUS.glob(pattern):
+                shutil.copy(src, work / src.name)
         if bundle := case.get("tla"):
             info = load_function(str(work / case["target"]))
             shutil.copytree(
@@ -234,7 +236,13 @@ def run_case(
                     res.llm_attempts = sum(proved.attempts.values())
 
             if seconds := case.get("fuzz"):
-                fuzz_target(target, ws, budget_s=float(seconds))
+                fuzz_target(
+                    target,
+                    ws,
+                    budget_s=float(seconds),
+                    engine=case.get("fuzz_engine"),
+                    max_executions=case.get("fuzz_executions"),
+                )
             if case.get("tla"):
                 _approve_bundle(target, ws)
                 tla_check_target(target, ws, runs=int(case.get("tla_runs", 200)))
@@ -283,7 +291,9 @@ def scoreboard(results: list[CaseResult], *, full: bool = False) -> dict:
 
     # Closure is over statements that are true and checkable: text-only items are excluded.
     good_props = [(r, p) for r in good for p, v in r.expected.items() if v in ("proven", "holds")]
-    proven = [(r, p) for r, p in good_props if r.verdicts.get(p) == Verdict.PROVEN]
+    # A JavaScript `number` proof is proven_conditional (safe-integer assumption): still closed.
+    closed = (Verdict.PROVEN, Verdict.PROVEN_CONDITIONAL)
+    proven = [(r, p) for r, p in good_props if r.verdicts.get(p) in closed]
     by_tactic = [(r, p) for r, p in proven if p in r.tactic_closed]
     by_supplied = [(r, p) for r, p in proven if p in r.supplied]
     by_llm = [(r, p) for r, p in proven if p in r.llm_closed]
@@ -311,6 +321,14 @@ def scoreboard(results: list[CaseResult], *, full: bool = False) -> dict:
         "false_proven": false_proven,
         "false_evidence": false_evidence,
         "cases_ok": f"{sum(r.ok for r in results)}/{len(results)}",
+        "languages": ", ".join(
+            f"{lang} {sum(r.ok for r in rs)}/{len(rs)}"
+            for lang, rs in (
+                ("python", [r for r in results if not is_js(r.target.split("::")[0])]),
+                ("javascript", [r for r in results if is_js(r.target.split("::")[0])]),
+            )
+            if rs
+        ),
         "corpus": ", ".join(
             f"{cat} {len(by_cat.get(cat, []))}/{n}" for cat, n in CORPUS_TARGET.items()
         ),

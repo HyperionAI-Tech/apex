@@ -51,7 +51,8 @@ BRIDGE_CALL_S = 0.02
 """Budget per call in the fidelity check, where every kept input is also evaluated by Lean's
 `#eval`, which is much slower than CPython on big lists: an input CPython needs more than this
 for is skipped, so the Lean side stays within its time budget."""
-RESOURCE_LIMITS = (RECURSION_LIMIT, TIMED_OUT)
+OUTSIDE_SAFE_INTEGERS = "outside the safe-integer range"
+RESOURCE_LIMITS = (RECURSION_LIMIT, TIMED_OUT, OUTSIDE_SAFE_INTEGERS)
 
 
 @contextlib.contextmanager
@@ -66,6 +67,10 @@ def unbounded_int_digits() -> Iterator[None]:
         sys.set_int_max_str_digits(previous)
 
 
+class OutsideSafeIntegersError(Exception):
+    """A JavaScript `number` result left the safe-integer range (raised by apex.js.runner)."""
+
+
 class CallTimeout(BaseException):
     """Raised inside user code when its budget runs out. A BaseException, so a bare
     `except Exception` in the user's code cannot swallow it."""
@@ -74,7 +79,10 @@ class CallTimeout(BaseException):
 def call_user(fn: Any, args: tuple[Any, ...], timeout_s: float = CALL_TIMEOUT_S) -> Any:
     """`fn(*args)`, interrupted with CallTimeout after `timeout_s`. Uses a trace function, not a
     signal, so it works off the main thread too (the MCP server runs tools in threads). A single
-    long-running C call (a huge bignum product) is only interrupted when it returns."""
+    long-running C call (a huge bignum product) is only interrupted when it returns. A callable
+    that runs elsewhere (a JavaScript function in Node) enforces the budget itself."""
+    if hasattr(fn, "apex_call"):
+        return fn.apex_call(args, timeout_s)
     deadline = time.monotonic() + timeout_s
 
     def tracer(frame: Any, event: str, arg: Any) -> Any:
@@ -100,6 +108,19 @@ SUPPRESSED_HEALTH_CHECKS = [
 
 class FidelityError(RuntimeError):
     """The bridge itself could not run (not a disagreement). Maps to a tool error."""
+
+
+JS_NUMBER_INTS = st.one_of(
+    st.integers(min_value=-16, max_value=16),
+    st.integers(min_value=-(2**16), max_value=2**16),
+    st.integers(min_value=-(2**26), max_value=2**26),
+)
+"""For JavaScript `number` parameters: products of two stay exact (below 2**53), so a search
+spends its inputs inside the safe-integer assumption `number` proofs are stated under."""
+
+
+def ints_for(info: FunctionInfo) -> "st.SearchStrategy[int] | None":
+    return JS_NUMBER_INTS if info.language == "js" and "number" in info.numeric else None
 
 
 MIXED_INTS = st.one_of(
@@ -128,7 +149,10 @@ def strategy_for(ty: PyType, ints: st.SearchStrategy[int] | None = None) -> st.S
 
 
 def generate_inputs(
-    params: list[PyType], n: int, accept: Callable[[tuple[Any, ...]], bool] | None = None
+    params: list[PyType],
+    n: int,
+    accept: Callable[[tuple[Any, ...]], bool] | None = None,
+    ints: "st.SearchStrategy[int] | None" = None,
 ) -> list[tuple[Any, ...]]:
     """Up to `n` distinct inputs; with `accept`, only inputs it accepts (e.g. preconditions)."""
     collected: list[tuple[Any, ...]] = []
@@ -140,7 +164,7 @@ def generate_inputs(
         deadline=None,
         suppress_health_check=SUPPRESSED_HEALTH_CHECKS,
     )
-    @given(st.tuples(*(strategy_for(t) for t in params)))
+    @given(st.tuples(*(strategy_for(t, ints) for t in params)))
     def collect(args: tuple[Any, ...]) -> None:
         if accept is not None and not accept(args):
             reject()
@@ -156,6 +180,17 @@ def load_python_function(info: FunctionInfo) -> Any:
 
 
 def load_module(info: FunctionInfo) -> Any:
+    if info.language == "js":
+        from apex.js.runner import JsError, NodeUnavailable, load_js_module
+
+        try:
+            return load_js_module(info)
+        except (JsError, NodeUnavailable, OSError) as e:
+            raise FidelityError(f"running {info.path.name} in Node failed: {e}") from e
+    return _load_python_module(info)
+
+
+def _load_python_module(info: FunctionInfo) -> Any:
     """Import the target's module fresh (never from sys.modules), so edits are always seen."""
     name = f"_apex_fidelity_{info.module}_{uuid.uuid4().hex[:8]}"
     spec = importlib.util.spec_from_file_location(name, info.path)
@@ -187,6 +222,8 @@ def _run_python(fn: Any, args: tuple[Any, ...], timeout_s: float = BRIDGE_CALL_S
         return _PyOutcome(error=TIMED_OUT)
     except RecursionError:
         return _PyOutcome(error=RECURSION_LIMIT)
+    except OutsideSafeIntegersError:
+        return _PyOutcome(error=OUTSIDE_SAFE_INTEGERS)
     except Exception as e:
         return _PyOutcome(error=f"{type(e).__name__}: {e}")
     return _PyOutcome(value=value, mutated=call_args != args)
@@ -280,7 +317,9 @@ def check_fidelity(
         except HintEvalError:
             return False
 
-    inputs = generate_inputs([t for _, t in sig.params], n, accept if pres else None)
+    inputs = generate_inputs(
+        [t for _, t in sig.params], n, accept if pres else None, ints=ints_for(info)
+    )
     if not inputs:
         raise FidelityError("no generated input satisfies the function's preconditions")
     generated = len(inputs)

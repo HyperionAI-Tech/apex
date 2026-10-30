@@ -168,6 +168,31 @@ The unlocked read-modify-write loses updates. TLC finds that in the spec, and a 
 it, so `T_NoLostUpdate` is `refuted`. `T_NeverAhead` is `model_checked`: no violation within the
 bounds, and the real runs match the spec.
 
+## 10. JavaScript and TypeScript
+
+Everything above works on `.ts` / `.js` files too. Write intent in JSDoc, with JavaScript
+expressions as hints (`result`, `==>`):
+
+```ts
+/**
+ * @pre lo <= hi
+ * @post lo <= result && result <= hi
+ * @example clamp(5, 0, 3) // => 3
+ */
+export function clamp(x: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(x, hi));
+}
+```
+
+```sh
+apex check shapes.ts       # P1, E1: proven_conditional (`number` is a double)
+```
+
+Proofs about `number` are `proven_conditional`: they hold while every intermediate value is a
+safe integer. Write the function on `bigint` and the same proof is fully `proven`. Apex runs
+the real JS in Node 22.6+ for refutation, fuzzing and the fidelity check; `apex init --js`
+adds Jazzer.js for coverage-guided JS fuzzing (`apex fuzz shapes.ts::clamp --engine jazzer`).
+
 ## Next
 
 - [What Apex cannot prove](LIMITS.md): read it before trusting a verdict.

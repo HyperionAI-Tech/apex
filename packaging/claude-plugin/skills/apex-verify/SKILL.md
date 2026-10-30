@@ -1,9 +1,10 @@
 ---
 name: apex-verify
 description: >-
-  Formally verify Python functions with Lean 4 using Apex. Use when the user asks
-  to prove, verify, or formally check a Python function; when you have just written
-  or changed a pure Python function and correctness matters; or when asked for a
+  Formally verify Python, JavaScript and TypeScript functions using Apex (Lean 4
+  proofs, TLA+ model checking, fuzzing). Use when the user asks to prove, verify, or
+  formally check a function; when you have just written or changed a pure function
+  and correctness matters; or when asked for a
   gap report, counterexample, or proof of a property such as bounds, sorting,
   or invariants. Produces proven / refuted / gap verdicts from Apex, never your own.
 license: MIT
@@ -17,8 +18,11 @@ allowed-tools: Bash(apex:*) Bash(uv:*) Read
 
 # Apex verify
 
-Apex proves or refutes properties of pure Python functions with Lean 4. You propose (formal
-hints, proofs); Apex checks; only Apex's verdicts count. Targets look like `path.py::function`.
+Apex proves or refutes properties of pure Python, JavaScript and TypeScript functions with
+Lean 4, and gathers evidence (fuzzing, TLA+) where Lean cannot reach. You propose (formal hints,
+proofs, specs); Apex checks; only Apex's verdicts count. Targets look like `path.py::function`
+or `path.ts::function`. For JS/TS, read [references/JAVASCRIPT.md](references/JAVASCRIPT.md)
+first: hints are JavaScript expressions there.
 
 ## Workflow
 

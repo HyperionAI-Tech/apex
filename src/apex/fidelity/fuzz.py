@@ -38,13 +38,16 @@ from apex.core.report import Counterexample, FuzzEvidence
 from apex.fidelity.bridge import (
     SUPPRESSED_HEALTH_CHECKS,
     FidelityError,
+    ints_for,
     strategy_for,
     unbounded_int_digits,
 )
 from apex.fidelity.refute import PropertyRefutation, _Check, _violation, load_checks
 
-Engine = Literal["hypothesis", "atheris"]
-ENGINES: tuple[Engine, ...] = ("hypothesis", "atheris")
+Engine = Literal["hypothesis", "atheris", "jazzer"]
+ENGINES: tuple[Engine, ...] = ("hypothesis", "atheris", "jazzer")
+"""`hypothesis` works for every language; `atheris` fuzzes Python, `jazzer` (Jazzer.js)
+JavaScript / TypeScript."""
 BATCH = 500
 """Inputs per Hypothesis batch; each batch has its own seed."""
 _CONFIG_ENV = "APEX_FUZZ_CONFIG"
@@ -80,8 +83,19 @@ def fuzz(
     ids: list[str] | None = None,
     budget_s: float = 30.0,
     engine: Engine = "hypothesis",
+    max_executions: int | None = None,
 ) -> FuzzResult:
-    """One campaign of `budget_s` seconds per property (`ids`, default all with a hint)."""
+    """One campaign of `budget_s` seconds per property (`ids`, default all with a hint).
+
+    `max_executions` also stops a Hypothesis campaign after that many calls. Its inputs are
+    seeded, so with an execution budget (and time to spare) a campaign is reproducible: the same
+    inputs, whatever else the machine is doing. A time budget alone runs fewer inputs on a busy
+    machine."""
+    js = info.language == "js"
+    if engine == "atheris" and js:
+        raise FuzzError("atheris fuzzes Python; for JavaScript use --engine jazzer")
+    if engine == "jazzer" and not js:
+        raise FuzzError("jazzer fuzzes JavaScript; for Python use --engine atheris")
     if engine == "atheris" and not atheris_available():
         raise FuzzError(
             "atheris is not installed: `uv pip install atheris` with a libFuzzer-capable clang "
@@ -107,7 +121,11 @@ def fuzz(
         c.max_slow = 1_000_000  # a campaign skips slow inputs and keeps going until its budget
         started = time.monotonic()
         if engine == "hypothesis":
-            _hypothesis_campaign(c, target.fn, params, target.ns, budget_s)
+            _hypothesis_campaign(
+                c, target.fn, params, target.ns, budget_s, ints_for(info), max_executions
+            )
+        elif engine == "jazzer":
+            _jazzer_campaign(c, info, params, target.fn, target.ns, budget_s)
         else:
             _atheris_campaign(c, info, intent, params, target.fn, target.ns, budget_s)
         result.properties.append(
@@ -127,26 +145,33 @@ def fuzz(
 
 
 def _hypothesis_campaign(
-    c: _Check, fn: Any, params: list[tuple[str, PyType]], ns: dict[str, Any], budget_s: float
+    c: _Check,
+    fn: Any,
+    params: list[tuple[str, PyType]],
+    ns: dict[str, Any],
+    budget_s: float,
+    ints: "st.SearchStrategy[int] | None" = None,
+    max_executions: int | None = None,
 ) -> None:
     names = [n for n, _ in params]
     deadline = time.monotonic() + budget_s
+    limit = max_executions if max_executions is not None else float("inf")
     found = []
 
     class _Broken(Exception):
         pass
 
     def search(args: tuple[Any, ...]) -> None:
-        if time.monotonic() > deadline:
+        if time.monotonic() > deadline or c.calls >= limit:
             return  # let the batch drain quickly
         cx = _violation(c, fn, names, args, ns, "fuzz")
         if cx is not None:
             found.append(cx)  # Hypothesis replays the shrunk example last
             raise _Broken
 
-    strategy = st.tuples(*(strategy_for(t) for _, t in params))
+    strategy = st.tuples(*(strategy_for(t, ints) for _, t in params))
     batch = 0
-    while time.monotonic() < deadline and c.found is None:
+    while time.monotonic() < deadline and c.found is None and c.calls < limit:
         batch += 1
         test = seed(batch)(
             settings(
@@ -187,6 +212,47 @@ def replay(
     if not target.checks:
         return None
     return _violation(target.checks[0], target.fn, names, args, target.ns, "fuzz")
+
+
+def _jazzer_campaign(
+    c: _Check,
+    info: FunctionInfo,
+    params: list[tuple[str, PyType]],
+    fn: Any,
+    ns: dict[str, Any],
+    budget_s: float,
+) -> None:
+    from apex.intent.hints import JS_INT_OPS
+    from apex.js.jazzer import JazzerUnavailable, hint_to_js, run_campaign
+
+    try:
+        helpers = {n for n in ns if n not in JS_INT_OPS}
+        pre, check = hint_to_js(c.hint, c.pres, helpers, bigint=info.numeric == {"bigint"})
+        runs, args, note = run_campaign(info, params, pre, check, budget_s)
+    except (ValueError, JazzerUnavailable) as e:
+        c.note = f"Jazzer.js: {e}"
+        return
+    c.calls, c.note = runs, note
+    if args is None:
+        return
+    names = [n for n, _ in params]
+    values = tuple(_from_json(a, t) for a, (_, t) in zip(args, params, strict=True))
+    # Replayed here, through the Node proxy, by refutation's own evaluator.
+    c.found = _violation(c, fn, names, values, ns, "fuzz")
+    if c.found is None:
+        c.note = "Jazzer.js reported an input that did not reproduce when replayed"
+
+
+def _from_json(v: Any, ty: PyType) -> Any:
+    if ty.kind == "int":
+        return int(v)
+    if ty.kind == "list":
+        return [_from_json(x, ty.args[0]) for x in v]
+    if ty.kind == "tuple":
+        return tuple(_from_json(x, t) for x, t in zip(v, ty.args, strict=True))
+    if ty.kind == "option":
+        return None if v is None else _from_json(v, ty.args[0])
+    return v
 
 
 # ---- atheris (subprocess) ----------------------------------------------------------------------

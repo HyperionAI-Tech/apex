@@ -14,6 +14,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"   # JS/TS targets run with Node's built-in TypeScript type stripping
       - run: uv sync --extra repl --extra anthropic --extra openai
       - run: uv run ruff check .
       - run: uv run pyright
@@ -73,6 +76,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"   # JS/TS targets run with Node's built-in TypeScript type stripping
       - name: Install elan
         run: |
           curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
@@ -91,6 +97,8 @@ jobs:
       - run: uv sync --extra repl --extra anthropic --extra openai
       - name: Install the pinned TLA+ tools (Java is preinstalled on the runner)
         run: uv run python -c "from apex.tla.tlc import install, tools; install(); tools()"
+      - name: Install the pinned Jazzer.js (JS fuzzing; the corpus has a fuzz-only JS bug)
+        run: uv run python -c "from apex.js.jazzer import install; install()"
       - run: uv run pytest -m lean
       - name: Eval corpus scoreboard (fails on any false proven or false evidence)
         run: uv run python evals/run.py

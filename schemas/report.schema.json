@@ -129,6 +129,15 @@
           ],
           "default": null
         },
+        "language": {
+          "default": "python",
+          "enum": [
+            "python",
+            "js"
+          ],
+          "title": "Language",
+          "type": "string"
+        },
         "line": {
           "anyOf": [
             {
@@ -194,7 +203,8 @@
         "engine": {
           "enum": [
             "hypothesis",
-            "atheris"
+            "atheris",
+            "jazzer"
           ],
           "title": "Engine",
           "type": "string"

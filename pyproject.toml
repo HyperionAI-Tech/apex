@@ -14,6 +14,8 @@ dependencies = [
     "hypothesis>=6.100",
     "crosshair-tool>=0.0.80",
     "mcp>=2.3",
+    "tree-sitter>=0.26.0",
+    "tree-sitter-typescript>=0.23.2",
 ]
 
 [project.optional-dependencies]

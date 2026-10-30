@@ -53,6 +53,7 @@ from apex.intent.proposals import (
 )
 from apex.intent.source import mine_source
 from apex.intent.tests import mine_tests
+from apex.js import SAFE_INTEGER_PRECONDITION
 from apex.lean.compiler import LeanMessage, TheoremOutcome, compile_and_audit, run_lean
 from apex.lean.project import LeanProject
 from apex.prove.tactics import probe
@@ -307,8 +308,25 @@ def _analyze(target: str, ws: "Workspace | None" = None) -> _Analysis:
     info = load_function(target)
     purity = classify(info.node, info.module_tree)
     model, gap = None, None
+    js = info.language == "js"
     if purity.class_ != "pure":
         gap = _purity_gap(purity)
+    elif js and not info.typed:
+        gap = Gap(
+            reason_code=ReasonCode.UNSUPPORTED_CONSTRUCT,
+            explanation=f"`{info.qualname}` has untyped parameters or result; Apex needs a type "
+            "for each to model it.",
+            next_steps=[
+                "Add TypeScript types, or JSDoc `@param {number} x` and `@returns {number}`."
+            ],
+        )
+    elif js and not info.exported:
+        gap = Gap(
+            reason_code=ReasonCode.UNSUPPORTED_CONSTRUCT,
+            explanation=f"`{info.qualname}` is not exported, so Apex cannot run it: refutation, "
+            "fuzzing and the fidelity check every proof needs all run the real code.",
+            next_steps=[f"Export `{info.qualname}` from {info.path.name}."],
+        )
     else:
         try:
             model = translate(info)
@@ -323,11 +341,16 @@ def _analyze(target: str, ws: "Workspace | None" = None) -> _Analysis:
 
     params = [n for n, _ in sig.params] if sig else [a.arg for a in info.node.args.args]
     helpers = module_functions(info)
-    mined = mine_docstring(info) + mine_tests(info) + mine_source(info)
+    from apex.js.intent import js_hint, mine_js_tests, mine_jsdoc
+
+    if js:
+        mined = mine_jsdoc(info) + mine_js_tests(info) + mine_source(info)
+    else:
+        mined = mine_docstring(info) + mine_tests(info) + mine_source(info)
     items: list[SpecItem] = []
     english = ws.english_specs(info) if ws else []
     for path in english:
-        m, its = mine_english(path, info.qualname, params, helpers)
+        m, its = mine_english(path, info.qualname, params, helpers, convert=js_hint if js else None)
         mined, items = mined + m, items + its
     previous = None
     if ws is not None:
@@ -707,11 +730,21 @@ def _undeclared_result(prop: Property, floor: float, spec_path: Path) -> Propert
     )
 
 
+_SIDE_EFFECTS = {ReasonCode.IMPURE_IO, ReasonCode.NEEDS_CONCURRENCY_TOOL}
+
+
+def safe_to_run(purity: PurityResult) -> bool:
+    """Whether refutation and fuzzing may call the real code thousands of times: no I/O, global
+    state or concurrency. Float arithmetic or an unsupported construct (a generator, a `while`
+    loop) keeps a function out of Lean's reach but makes it no less safe to run."""
+    return not any(f.reason_code in _SIDE_EFFECTS for f in purity.findings)
+
+
 def _apply_fuzz(results: dict[str, PropertyResult], a: _Analysis, ws: Workspace) -> None:
     """Recorded campaigns, where still current (same function, same hint): a clean one turns a
     property Lean could not decide into `fuzzed`; a counterexample, replayed again here, refutes."""
     evidence = ws.fuzz_evidence(a.info)
-    if not evidence or a.sig is None or a.purity.class_ != "pure":
+    if not evidence or a.sig is None or not safe_to_run(a.purity):
         return
     hints = {p.id: p.formal_hint for p in a.intent.properties}
     for pid, p in list(results.items()):
@@ -924,6 +957,7 @@ def _verify_function(
         file=str(info.path),
         sha256=info.sha256,
         line=info.lineno,
+        language="js" if info.language == "js" else "python",
         purity=a.purity.class_,
         pure_core=a.purity.pure_core,
     )
@@ -945,7 +979,7 @@ def _verify_function(
     ]
 
     def run_refutation(crosshair_ids: set[str]) -> RefuteResult | None:
-        if a.purity.class_ != "pure" or a.sig is None or not refutable:
+        if not safe_to_run(a.purity) or a.sig is None or not refutable:
             return None
         return refute(
             info,
@@ -1056,6 +1090,26 @@ def _verify_function(
             )
         except FidelityError as e:
             raise ApexToolError(f"fidelity check could not run: {e}") from e
+        if result.fidelity.agree and info.language == "js" and "number" in info.numeric:
+            # JS `number` is a double: the Lean model computes with exact integers, so a proof
+            # transfers only while every intermediate value is a safe integer.
+            for pid, p in compiled.items():
+                if p.proof is not None:
+                    compiled[pid] = p.model_copy(
+                        update={
+                            "verdict": Verdict.PROVEN_CONDITIONAL,
+                            "added_preconditions": [SAFE_INTEGER_PRECONDITION],
+                            "gap": Gap(
+                                reason_code=ReasonCode.FLOAT_SEMANTICS,
+                                explanation="Proven for JavaScript `number` arithmetic while "
+                                "every intermediate value is a safe integer.",
+                                next_steps=[
+                                    "Use `bigint` for exact integer arithmetic, and the proof "
+                                    "is unconditional."
+                                ],
+                            ),
+                        }
+                    )
         if not result.fidelity.agree:
             m = result.fidelity.mismatch
             for pid, p in compiled.items():
@@ -1198,8 +1252,8 @@ def prove_tactics(
 
 def refute_target(target: str, ws: Workspace, ids: list[str] | None = None) -> RefuteResult:
     a = _analyze(target, ws)
-    if a.purity.class_ != "pure":
-        raise ApexToolError(f"{target} is not pure; refutation would run its side effects")
+    if not safe_to_run(a.purity):
+        raise ApexToolError(f"{target} has side effects; refutation would run them")
     if a.sig is None:
         raise ApexToolError(f"{target}: parameter or return types are outside the MVP subset")
     return refute(
@@ -1219,11 +1273,12 @@ def fuzz_target(
     ids: list[str] | None = None,
     budget_s: float | None = None,
     engine: Engine | None = None,
+    max_executions: int | None = None,
 ) -> FuzzResult:
     """Run a fuzzing campaign per property and record it; `verify` reads the record."""
     a = _analyze(target, ws)
-    if a.purity.class_ != "pure":
-        raise ApexToolError(f"{target} is not pure; fuzzing would run its side effects")
+    if not safe_to_run(a.purity):
+        raise ApexToolError(f"{target} has side effects; fuzzing would run them")
     if a.sig is None:
         raise ApexToolError(f"{target}: parameter or return types are outside the MVP subset")
     try:
@@ -1234,6 +1289,7 @@ def fuzz_target(
             ids=ids,
             budget_s=budget_s if budget_s is not None else ws.config.fuzz_budget_s,
             engine=engine or ws.config.fuzz_engine,
+            max_executions=max_executions,
         )
     except FuzzError as e:
         raise ApexToolError(str(e)) from e
@@ -1364,24 +1420,30 @@ def _quick_refuted(a: _Analysis, spec: Spec, ws: Workspace) -> set[str]:
 # ---- check (engine mode: the full pipeline over files and packages) ---------------------------
 
 _SKIP_DIRS = {".git", ".apex", ".venv", "venv", "node_modules", "__pycache__", "build", "dist"}
+_SOURCE_SUFFIXES = {".py", ".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"}
 
 
 def _is_test_file(path: Path) -> bool:
+    name = path.name
     return (
-        path.name.startswith("test_")
-        or path.name.endswith("_test.py")
-        or (path.name == "conftest.py")
+        name.startswith("test_")
+        or name.endswith("_test.py")
+        or name == "conftest.py"
+        or ".test." in name  # clamp.test.ts (Jest, Vitest, node:test)
+        or ".spec." in name  # clamp.spec.ts; English specs are .spec.md and not code anyway
+        or "__tests__" in path.parts
     )
 
 
 def discover_targets(
     paths: list[str], ws: Workspace, *, include_private: bool = False
 ) -> list[str]:
-    """`path.py::fn` targets for every function to check.
+    """`path::fn` targets for every function to check.
 
-    Directories are walked for `.py` files, skipping test files, the config's `ignore` globs and
-    tool directories. Private functions (`_name`) are skipped unless asked for: they are checked
-    as part of the public functions that call them.
+    Directories are walked for Python and JavaScript / TypeScript files, skipping test files,
+    type declarations (`.d.ts`), the config's `ignore` globs and tool directories. Private
+    functions (`_name`) are skipped unless asked for: they are checked as part of the public
+    functions that call them.
     """
     from apex.analyze.target import TargetError, top_level_functions
 
@@ -1396,8 +1458,10 @@ def discover_targets(
         elif path.is_dir():
             files = sorted(
                 f
-                for f in path.rglob("*.py")
-                if not _SKIP_DIRS & set(f.relative_to(path).parts[:-1])
+                for f in path.rglob("*")
+                if f.suffix in _SOURCE_SUFFIXES
+                and not f.name.endswith(".d.ts")
+                and not _SKIP_DIRS & set(f.relative_to(path).parts[:-1])
                 and not _is_test_file(f)
                 and not _ignored(f, ws)
             )
@@ -1475,7 +1539,7 @@ def check(
             on_step(s)
 
     def maybe_fuzz(target: str, a: _Analysis, open_ids: list[str] | None) -> None:
-        if not fuzz_s or a.purity.class_ != "pure" or a.sig is None or open_ids == []:
+        if not fuzz_s or not safe_to_run(a.purity) or a.sig is None or open_ids == []:
             return
         _check_deadline(deadline)
         try:

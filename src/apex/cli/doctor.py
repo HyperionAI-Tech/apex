@@ -176,6 +176,7 @@ def run_doctor(cwd: Path | None = None, *, warm_repl: bool = False) -> DoctorRep
         )
     )
     checks.append(_tla_check())
+    checks += _js_checks()
     checks.append(_llm_check(cwd))
 
     skills = _skill_locations(cwd)
@@ -195,6 +196,31 @@ def run_doctor(cwd: Path | None = None, *, warm_repl: bool = False) -> DoctorRep
     return DoctorReport(
         apex_version=__version__, healthy=all(c.status != "fail" for c in checks), checks=checks
     )
+
+
+def _js_checks() -> list[Check]:
+    """Node runs JavaScript / TypeScript targets; Jazzer.js fuzzes them. Both optional."""
+    import subprocess
+
+    from apex.js.jazzer import JAZZER_VERSION, JazzerUnavailable, jazzer_bin
+
+    node = shutil.which("node")
+    if node is None:
+        out = [Check(name="node", status="warn", detail="not found; needed for JS/TS targets")]
+    else:
+        version = subprocess.run([node, "--version"], capture_output=True, text=True).stdout
+        major = int(version.strip().lstrip("v").split(".")[0] or 0)
+        ok = major >= 22
+        detail = f"{version.strip()} at {node}" + ("" if ok else "; JS/TS needs Node 22.6+")
+        out = [Check(name="node", status="ok" if ok else "warn", detail=detail)]
+    try:
+        detail = f"Jazzer.js {JAZZER_VERSION} at {jazzer_bin()}"
+        out.append(Check(name="jazzer", status="ok", detail=detail))
+    except JazzerUnavailable:
+        out.append(
+            Check(name="jazzer", status="warn", detail="optional (JS fuzzing): `apex init --js`")
+        )
+    return out
 
 
 def _tla_check() -> Check:

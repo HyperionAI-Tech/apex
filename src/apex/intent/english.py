@@ -17,6 +17,7 @@ If headings name functions, only the section whose heading names the target is r
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -84,16 +85,23 @@ def spec_items(text: str, qualname: str) -> list[SpecItem]:
 
 
 def mine_english(
-    path: Path, qualname: str, params: list[str], helpers: set[str]
+    path: Path,
+    qualname: str,
+    params: list[str],
+    helpers: set[str],
+    convert: Callable[[str], str] | None = None,
 ) -> tuple[Mined, list[SpecItem]]:
+    """`convert`: how hints in this spec's language become internal hints (JavaScript specs
+    write `lo <= r && r <= hi`; Python specs need none)."""
     items = spec_items(path.read_text(), qualname)
     out = []
     for it in items:
         hint = it.hint
         if hint is not None:
             try:
+                hint = convert(hint) if convert else hint
                 parse_hint(hint, params, helpers)
-            except HintError:
+            except (HintError, ValueError):
                 hint = None  # backticked text that is not a hint is just emphasis
         out.append(
             Candidate(

@@ -22,7 +22,23 @@ from dataclasses import dataclass
 from typing import Any
 
 RESULT_NAMES = ("r", "result", "__return__")
-BUILTINS = frozenset({"all", "any", "len", "abs", "min", "max", "sum", "range"})
+
+
+def _tmod(a: int, b: int) -> int:
+    """JavaScript's `%` on integers: the remainder truncated toward zero (sign of `a`)."""
+    return a - b * _tdiv(a, b)
+
+
+def _tdiv(a: int, b: int) -> int:
+    """`Math.trunc(a / b)` on integers."""
+    q = abs(a) // abs(b)
+    return q if (a >= 0) == (b > 0) else -q
+
+
+JS_INT_OPS = {"__apex_tmod__": _tmod, "__apex_tdiv__": _tdiv}
+"""What the JS lowering writes for `%` and `Math.trunc(a / b)`, so hints on JS code mean what
+JavaScript means (and the translator gives them Lean's Int.tmod / Int.tdiv)."""
+BUILTINS = frozenset({"all", "any", "len", "abs", "min", "max", "sum", "range", *JS_INT_OPS})
 
 _ALLOWED = (
     ast.Expression,
@@ -154,7 +170,7 @@ def _check(node: ast.expr, allowed_names: set[str], callables: set[str]) -> None
             if n.keywords:
                 raise HintError("keyword arguments are not allowed in a formal hint")
         if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
-            if n.id.startswith("__"):
+            if n.id.startswith("__") and n.id not in JS_INT_OPS:  # JS `%`, `Math.trunc(a / b)`
                 raise HintError(f"name `{n.id}` is not allowed")
             if n.id not in allowed_names | bound | callables:
                 raise HintError(
@@ -196,7 +212,9 @@ def parse_condition(
     return h.conclusion
 
 
-_SAFE_BUILTINS = {name: getattr(builtins, name) for name in BUILTINS}
+_SAFE_BUILTINS = {
+    name: getattr(builtins, name) for name in BUILTINS if name not in JS_INT_OPS
+} | JS_INT_OPS
 
 
 def evaluate(expr: ast.expr, env: dict[str, Any], helpers: dict[str, Any] | None = None) -> bool:

@@ -868,10 +868,12 @@ expected = { P1 = "holds", P2 = "holds", P3 = "holds" }
 
 # A planted bug outside the subset that the default refutation (300 Hypothesis inputs, 3 s of
 # CrossHair) misses: pow(total, 5, 10007) == 1234 is a needle neither reaches. A fuzzing campaign
-# finds it (it stops at the first counterexample, so the budget is a ceiling).
+# finds it after about 13,000 inputs. An execution budget keeps the case reproducible: a 60 s
+# time budget alone once missed it on a loaded machine (and the false-evidence gate caught it).
 [[case]]
 target = "loops.py::mix"
-fuzz = 60
+fuzz = 600
+fuzz_executions = 30000
 category = "planted_bug"
 inputs = ["docstring"]
 reason = "NONTERMINATION"
@@ -904,3 +906,307 @@ target = "workers.py::jittery_worker"
 tla = "tla/jittery_worker"
 category = "concurrent"
 expected = { T_NoLostUpdate = "fidelity_failed", T_NeverAhead = "fidelity_failed" }
+
+# ---- JavaScript / TypeScript (Phase 7) ----
+# Same Lean reference statements as the Python corpus where names match: the lowered model is the
+# same function. Proofs about `number` code are proven_conditional (safe-integer assumption).
+
+[[case]]
+target = "jsmath.ts::clamp"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/clamp.lean"
+expected = { P1 = "holds", P2 = "holds", E1 = "holds", E2 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "jsmath.ts::my_abs"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/my_abs.lean"
+expected = { P1 = "holds", P2 = "holds", E1 = "holds", R1 = "holds", R2 = "holds", R3 = "holds" }
+
+[[case]]
+target = "jsmath.ts::sign"
+category = "known_good"
+reference = "specs/sign.lean"
+expected = { R1 = "holds", R2 = "holds", R3 = "holds", R4 = "holds", R5 = "holds" }
+
+[[case]]
+target = "jsmath.ts::sum_list"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/sum_list.lean"
+expected = { P1 = "holds", E1 = "holds", R1 = "holds", R2 = "holds", R3 = "holds" }
+
+[[case]]
+target = "jsmath.ts::safe_div"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/safe_div.lean"
+expected = { P1 = "holds", E1 = "holds", E2 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "jsmath.ts::count_positive"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/count_positive.lean"
+expected = { P1 = "holds", P2 = "holds", R1 = "holds", R2 = "holds", R3 = "holds" }
+
+[[case]]
+target = "jsmath.ts::max3"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/max3.lean"
+expected = { P1 = "holds", P2 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "jsmath.ts::is_even"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/is_even.lean"
+expected = { E1 = "holds", E2 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "jsmath.ts::product"
+category = "known_good"
+inputs = ["docstring"]
+expected = { P1 = "holds", E1 = "proven" }
+
+[[case]]
+target = "jsmath.ts::sum_big"
+category = "known_good"
+inputs = ["docstring"]
+expected = { P1 = "holds", E1 = "proven" }
+
+[[case]]
+target = "jsalgos.ts::is_sorted"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/is_sorted.lean"
+expected = { E1 = "holds", E2 = "holds", R1 = "holds" }
+
+[[case]]
+target = "jsalgos.ts::insert_sorted"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/insert_sorted.lean"
+expected = { P1 = "holds", E1 = "holds", R1 = "holds", R2 = "holds", R3 = "holds" }
+
+[[case]]
+target = "jsalgos.ts::insertion_sort"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/insertion_sort.lean"
+expected = { P1 = "holds", P2 = "holds", E1 = "holds", R1 = "holds", R2 = "holds", R3 = "holds" }
+
+[[case]]
+target = "jsalgos.ts::reverse_list"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/reverse_list.lean"
+expected = { P1 = "holds", E1 = "holds", R1 = "holds" }
+
+[[case]]
+target = "jsalgos.ts::balanced"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/balanced.lean"
+expected = { E1 = "holds", E2 = "holds", E3 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "jsalgos.ts::prefix_sums"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/prefix_sums.lean"
+expected = { P1 = "holds", E1 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "jsalgos.ts::all_positive"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/all_positive.lean"
+expected = { P1 = "holds", R1 = "holds" }
+
+[[case]]
+target = "jsalgos.ts::negate_all"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/negate_all.lean"
+expected = { P1 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "jsalgos.ts::count_in_range"
+category = "known_good"
+inputs = ["docstring"]
+reference = "specs/count_in_range.lean"
+expected = { P1 = "holds", R1 = "holds" }
+
+# One slip each (see jsbugs.ts). `is_odd` is the JavaScript classic: -3 % 2 is -1.
+[[case]]
+target = "jsbugs.ts::clamp"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/clamp.lean"
+expected = { P1 = "holds", P2 = "refuted", E1 = "refuted", R1 = "holds", R2 = "unproven" }
+
+[[case]]
+target = "jsbugs.ts::my_abs"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/my_abs.lean"
+expected = { P1 = "refuted", P2 = "holds", E1 = "holds", R1 = "unproven", R2 = "holds", R3 = "unproven" }
+
+[[case]]
+target = "jsbugs.ts::sum_list"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/sum_list.lean"
+expected = { P1 = "holds", E1 = "refuted", R1 = "holds", R2 = "unproven", R3 = "unproven" }
+
+[[case]]
+target = "jsbugs.ts::is_odd"
+category = "planted_bug"
+inputs = ["docstring"]
+expected = { P1 = "refuted", E1 = "holds" }
+
+[[case]]
+target = "jsbugs.ts::balanced"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/balanced.lean"
+expected = { E1 = "holds", E2 = "refuted", R1 = "holds", R2 = "unproven" }
+
+[[case]]
+target = "jsbugs.ts::all_positive"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/all_positive.lean"
+expected = { P1 = "refuted", R1 = "unproven" }
+
+[[case]]
+target = "jsbugs.ts::reverse_list"
+category = "planted_bug"
+inputs = ["docstring"]
+reference = "specs/reverse_list.lean"
+expected = { P1 = "holds", E1 = "refuted", R1 = "unproven" }
+
+# The JS twin of loops.py::mix: only a coverage-guided campaign (Jazzer.js) reaches the sentinel.
+[[case]]
+target = "jsbugs.ts::mix"
+fuzz = 60
+fuzz_engine = "jazzer"
+category = "planted_bug"
+inputs = ["docstring"]
+reason = "NONTERMINATION"
+expected = { P1 = "refuted" }
+
+[[case]]
+target = "jsconflicts.ts::double"
+category = "conflict"
+inputs = ["docstring", "tests"]
+expected = { E1 = "contradiction", E2 = "contradiction" }
+
+[[case]]
+target = "jsconflicts.ts::inc"
+category = "conflict"
+inputs = ["docstring"]
+expected = { P1 = "contradiction", E1 = "contradiction" }
+
+[[case]]
+target = "jsconflicts.ts::gap"
+category = "conflict"
+inputs = ["docstring"]
+expected = { P1 = "refuted" }
+
+[[case]]
+target = "jsimpure.ts::logged_clamp"
+category = "out_of_scope"
+inputs = ["docstring"]
+reason = "IMPURE_IO"
+expected = { P1 = "out_of_scope" }
+
+[[case]]
+target = "jsimpure.ts::roll"
+category = "out_of_scope"
+reason = "IMPURE_IO"
+
+[[case]]
+target = "jsimpure.ts::stamp"
+category = "out_of_scope"
+reason = "IMPURE_IO"
+
+[[case]]
+target = "jsimpure.ts::untyped"
+category = "out_of_scope"
+reason = "UNSUPPORTED_CONSTRUCT"
+
+[[case]]
+target = "jsimpure.ts::greet"
+category = "out_of_scope"
+reason = "UNSUPPORTED_CONSTRUCT"
+
+[[case]]
+target = "jsimpure.ts::later"
+category = "out_of_scope"
+reason = "NEEDS_CONCURRENCY_TOOL"
+
+[[case]]
+target = "jsimpure.ts::loose"
+category = "out_of_scope"
+reason = "UNSUPPORTED_CONSTRUCT"
+
+[[case]]
+target = "jsimpure.ts::hidden"
+category = "out_of_scope"
+reason = "UNSUPPORTED_CONSTRUCT"
+
+[[case]]
+target = "jsimpure.ts::isqrt"
+fuzz = 3
+category = "out_of_scope"
+inputs = ["docstring"]
+reason = "NONTERMINATION"
+expected = { P1 = "fuzzed" }
+
+# Agent-written TypeScript (ai_ts_*.ts, unedited). All six are correct as far as a careful
+# reading shows. ceilDiv uses real division `/` (a float), dedupeConsecutive indexes arrays.
+[[case]]
+target = "ai_ts_claude.ts::clamp"
+category = "ai_generated"
+inputs = ["english"]
+reference = "specs/clamp.lean"
+expected = { P1 = "holds", P2 = "holds", R1 = "holds", R2 = "holds" }
+
+[[case]]
+target = "ai_ts_claude.ts::ceilDiv"
+fuzz = 3
+category = "ai_generated"
+inputs = ["english"]
+reason = "FLOAT_SEMANTICS"
+expected = { P1 = "fuzzed" }
+
+[[case]]
+target = "ai_ts_claude.ts::dedupeConsecutive"
+fuzz = 3
+category = "ai_generated"
+inputs = ["english"]
+reason = "UNSUPPORTED_CONSTRUCT"
+expected = { P1 = "fuzzed", P2 = "fuzzed" }
+
+[[case]]
+target = "ai_ts_codex.ts::countBetween"
+category = "ai_generated"
+inputs = ["english"]
+expected = { P1 = "holds", P2 = "holds" }
+
+[[case]]
+target = "ai_ts_codex.ts::isLeapYear"
+category = "ai_generated"
+inputs = ["english"]
+expected = { P1 = "holds", P2 = "holds", P3 = "holds" }
+
+[[case]]
+target = "ai_ts_codex.ts::sumOfSquares"
+category = "ai_generated"
+inputs = ["english"]
+expected = { P1 = "holds", P2 = "holds" }

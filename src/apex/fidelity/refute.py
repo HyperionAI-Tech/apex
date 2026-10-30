@@ -44,12 +44,16 @@ from apex.core.report import Counterexample
 from apex.fidelity.bridge import (
     CALL_TIMEOUT_S,
     MAX_SLOW,
+    OUTSIDE_SAFE_INTEGERS,
     RECURSION_LIMIT,
+    RESOURCE_LIMITS,
     SUPPRESSED_HEALTH_CHECKS,
     TIMED_OUT,
     CallTimeout,
     FidelityError,
+    OutsideSafeIntegersError,
     call_user,
+    ints_for,
     load_module,
     strategy_for,
     unbounded_int_digits,
@@ -102,6 +106,8 @@ def _call(fn: Any, args: tuple[Any, ...]) -> tuple[Any, str | None]:
         return call_user(fn, copy.deepcopy(args)), None
     except CallTimeout:
         return None, TIMED_OUT
+    except OutsideSafeIntegersError:
+        return None, OUTSIDE_SAFE_INTEGERS
     except RecursionError:
         return None, RECURSION_LIMIT
     except Exception as e:
@@ -130,7 +136,7 @@ def _violation(
     value, error = _call(fn, args)
     c.calls += 1
     inputs = {k: repr(v) for k, v in env.items()}
-    if error in (RECURSION_LIMIT, TIMED_OUT):
+    if error in RESOURCE_LIMITS:
         c.slow += error == TIMED_OUT
         c.skipped += 1
         c.note = _skip_note(error, inputs)
@@ -156,7 +162,12 @@ def _skip_note(error: str, inputs: dict[str, str]) -> str:
     shown = ", ".join(f"{k}={v}" for k, v in inputs.items())
     if error == TIMED_OUT:
         return f"skipped inputs on which the function ran past {CALL_TIMEOUT_S}s (e.g. {shown})"
-    return f"skipped inputs that exceed Python's recursion limit (e.g. {shown})"
+    if error == OUTSIDE_SAFE_INTEGERS:
+        return (
+            "skipped inputs whose JavaScript result left the safe-integer range, outside what "
+            f"`number` claims assume (e.g. {shown})"
+        )
+    return f"skipped inputs that exceed the recursion limit (e.g. {shown})"
 
 
 def _mentions(e: ast.expr, h: Hint) -> bool:
@@ -168,7 +179,7 @@ def _example_check(pid: str, ex: Example, fn: Any, names: list[str]) -> Property
     inputs = {k: repr(v) for k, v in zip(names, ex.args, strict=True)}
     if error is None and normalize(value) == normalize(ex.expected):
         return PropertyRefutation(id=pid, refuted=False, searched_by=["example"])
-    if error in (RECURSION_LIMIT, TIMED_OUT):
+    if error in RESOURCE_LIMITS:
         return PropertyRefutation(
             id=pid, refuted=False, searched_by=["example"], note=_skip_note(error, inputs)
         )
@@ -186,7 +197,12 @@ def _example_check(pid: str, ex: Example, fn: Any, names: list[str]) -> Property
 
 
 def _hypothesis(
-    c: _Check, fn: Any, params: list[tuple[str, PyType]], ns: dict[str, Any], n: int
+    c: _Check,
+    fn: Any,
+    params: list[tuple[str, PyType]],
+    ns: dict[str, Any],
+    n: int,
+    ints: "st.SearchStrategy[int] | None" = None,
 ) -> None:
     names = [p for p, _ in params]
     found: list[Counterexample] = []
@@ -201,7 +217,7 @@ def _hypothesis(
         deadline=None,
         suppress_health_check=SUPPRESSED_HEALTH_CHECKS,
     )
-    @given(st.tuples(*(strategy_for(t) for _, t in params)))
+    @given(st.tuples(*(strategy_for(t, ints) for _, t in params)))
     def search(args: tuple[Any, ...]) -> None:
         cx = _violation(c, fn, names, args, ns, "hypothesis")
         if cx is not None:
@@ -251,6 +267,10 @@ def _crosshair(
     budget_s: float,
 ) -> None:
     if not checks:
+        return
+    if info.language != "python":  # CrossHair executes Python symbolically
+        for c in checks:
+            c.note = c.note or "CrossHair is Python-only; searched with examples and Hypothesis"
         return
     names = [p for p, _ in params]
     by_id = {c.pid: c for c in checks}
@@ -392,7 +412,7 @@ def refute(
             if c.found is None and len(ex.args) == len(names):
                 c.found = _violation(c, fn, names, ex.args, ns, "example")
         if c.found is None:
-            _hypothesis(c, fn, params, ns, hypothesis_n)
+            _hypothesis(c, fn, params, ns, hypothesis_n, ints_for(info))
     wanted = crosshair_ids if crosshair_ids is not None else {c.pid for c in checks}
     _crosshair(
         [c for c in checks if c.found is None and c.pid in wanted], info, params, fn, ns, budget_s

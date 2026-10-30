@@ -7,7 +7,7 @@ round a gap up to a pass.
 |---|---|---|
 | `proven` | Lean proved an approved statement; axioms clean; the Lean model agreed with the real Python on generated inputs | "Apex proved P1." |
 | `proven_unreviewed` | As `proven`, but no person approved the statement | "Lean proved P1, but the statement is not approved yet, so it does not count as proven. Please read it and run `apex review <target> --approve P1` in your terminal if it says what you mean." |
-| `proven_conditional` | Proven only under an assumption the source does not state | "P1 holds only if <precondition>; the code does not check that." |
+| `proven_conditional` | Proven only under an assumption the source does not state. For JavaScript `number` code: that every intermediate value is a safe integer | "P1 holds only if <precondition>; the code does not check that." For JS: "Lean proved P1 for `number` arithmetic within the safe-integer range; use `bigint` for an unconditional proof." |
 | `refuted` | An input (or, for concurrent code, a recorded run) on which the real Python breaks the property, observed by Apex | "P1 is false: `f(x=0)` returns -1." Then fix the code or the intent. |
 | `fidelity_failed` | The model Apex checked (Lean model, or TLA+ spec) and the Python disagree; any result about the model was discarded | "Apex could not model this function faithfully ...; this is a modelling problem, not a proof." For TLA+: "a real run is not a behavior of the spec; fix the spec or the code." |
 | `contradiction` | Two intent sources disagree | "Your docstring and your test disagree about f(5); which is right?" |

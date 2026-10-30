@@ -25,6 +25,16 @@ from apex.analyze.target import FunctionInfo
 from apex.analyze.types import BOOL, INT, PyType, UnsupportedType, list_of, parse_annotation
 from apex.core.verdict import ReasonCode
 
+UNSUPPORTED_HOOK = "__apex_unsupported__"
+"""`__apex_unsupported__("what", "REASON")`: a frontend (the JS lowering) marking a construct it
+cannot express in the subset; translating it raises a gap with that reason."""
+TMOD_HOOK = "__apex_tmod__"
+"""Truncated remainder (JavaScript `%`): Lean `Int.tmod`."""
+TDIV_HOOK = "__apex_tdiv__"
+"""Truncated quotient (JavaScript `Math.trunc(a / b)`): Lean `Int.tdiv`."""
+REDUCE_HOOK = "__apex_reduce__"
+"""`__apex_reduce__(lambda acc, x: body, xs, init)` (JavaScript `reduce`): `List.foldl`."""
+
 LEAN_KEYWORDS = frozenset(
     {
         "at",
@@ -254,10 +264,12 @@ def _assigned_names(nodes: list[ast.stmt]) -> list[str]:
 
 
 class _FunctionTranslator:
-    def __init__(self, fn: ast.FunctionDef, sigs: dict[str, FunctionSig]) -> None:
+    def __init__(self, fn: ast.FunctionDef, sigs: dict[str, FunctionSig], js: bool = False) -> None:
         self.fn = fn
         self.sigs = sigs
         self.sig = sigs[fn.name]
+        self.js = js
+        """Lowered from JavaScript: `==` on arrays would be identity there, so it is refused."""
 
     # ---- types -------------------------------------------------------------------------------
 
@@ -435,6 +447,22 @@ class _FunctionTranslator:
         func, args = node.func, node.args
         if isinstance(func, ast.Name):
             name = func.id
+            if name == UNSUPPORTED_HOOK:
+                consts = [a.value for a in args if isinstance(a, ast.Constant)]
+                what = consts[0] if consts else "?"
+                reason = consts[1] if len(consts) > 1 else ""
+                code = ReasonCode(reason) if reason in ReasonCode.__members__ else None
+                raise TranslationError(
+                    f"{what} is not in the subset", node, code or ReasonCode.UNSUPPORTED_CONSTRUCT
+                )
+            if name in (TMOD_HOOK, TDIV_HOOK) and len(args) == 2:
+                a, ta = self.expr(args[0], env, INT)
+                b, tb = self.expr(args[1], env, INT)
+                self._unify(INT, ta, node)
+                self._unify(INT, tb, node)
+                return f"(Int.{'tmod' if name == TMOD_HOOK else 'tdiv'} {a} {b})", INT
+            if name == REDUCE_HOOK and len(args) == 3 and isinstance(args[0], ast.Lambda):
+                return self._reduce(args[0], args[1], args[2], env, node)
             if name in self.sigs:
                 sig = self.sigs[name]
                 if len(args) != len(sig.params):
@@ -473,6 +501,27 @@ class _FunctionTranslator:
                 )
             raise TranslationError(f"call to `{name}` is not in the MVP subset", node)
         raise TranslationError(f"call `{ast.unparse(func)}` is not in the MVP subset", node)
+
+    def _reduce(
+        self,
+        fn: ast.Lambda,
+        xs: ast.expr,
+        init: ast.expr,
+        env: dict[str, PyType],
+        node: ast.AST,
+    ) -> tuple[str, PyType]:
+        names = [a.arg for a in fn.args.args]
+        if len(names) != 2:
+            raise TranslationError("reduce needs a two-argument callback", node)
+        t_xs, ty_xs = self.expr(xs, env)
+        if ty_xs.kind != "list":
+            raise TranslationError("reduce is only supported on lists", node)
+        t_init, ty_init = self.expr(init, env)
+        inner = {**env, names[0]: ty_init, names[1]: ty_xs.args[0]}
+        t_body, ty_body = self.expr(fn.body, inner, ty_init)
+        ty = self._unify(ty_init, ty_body, node)
+        acc, x = (lean_ident(n) for n in names)
+        return f"({t_xs}.foldl (fun {acc} {x} => {t_body}) {t_init})", ty
 
     def _iterable(self, it: ast.expr, env: dict[str, PyType]) -> tuple[str, PyType]:
         """Returns the Lean list and its element type."""
@@ -579,6 +628,10 @@ class _FunctionTranslator:
             elif rty.kind == "option" and lty == rty.args[0]:
                 lt, lty = f"(some {lt})", rty
         ty = self._unify(lty, rty, node)
+        if self.js and sym in ("=", "≠") and ty.kind in ("list", "tuple"):
+            raise TranslationError(
+                "`===` on arrays compares identity in JavaScript, not contents", node
+            )
         if sym not in ("=", "≠") and ty != INT:
             raise TranslationError(f"ordering comparison on {ty.python()} is not supported", node)
         return f"({lt} {sym} {rt})"
@@ -659,6 +712,9 @@ class _FunctionTranslator:
                 return self._let(
                     lean_ident(name), t, {**env, name: self._unify(env[name], ty, s)}, rest, tail
                 )
+            case ast.Expr(value=ast.Call(func=ast.Name(id=hook))) if hook == UNSUPPORTED_HOOK:
+                self.expr(s.value, env)  # raises the gap the hook carries
+                raise TranslationError("unsupported construct", s)
             case ast.Expr(
                 value=ast.Call(
                     func=ast.Attribute(value=ast.Name(id=name), attr="append"), args=[arg]
@@ -783,6 +839,9 @@ class PropTranslator(_FunctionTranslator):
 
     def __init__(self, sigs: dict[str, FunctionSig]) -> None:
         self.sigs = sigs
+        # A hint is a specification, not JavaScript that runs: `===` on arrays in a JS-syntax
+        # hint means equal contents, so the array-identity rule for JS code does not apply.
+        self.js = False
 
     def translate(self, node: ast.expr, env: dict[str, PyType]) -> str:
         return self.prop(node, env)
@@ -800,7 +859,8 @@ def translate(info: FunctionInfo) -> LeanModel:
     for f in functions:
         sig = sigs[f.qualname]
         params = " ".join(f"({lean_ident(n)} : {t.lean()})" for n, t in sig.params)
-        body = _FunctionTranslator(f.node, sigs).body()
+        js = getattr(info, "language", "python") == "js"
+        body = _FunctionTranslator(f.node, sigs, js=js).body()
         head = f"def {lean_ident(f.qualname)} {params} : {sig.returns.lean()} :="
         defs.append(f"{head}\n{_indent(body)}")
         names.append(lean_ident(f.qualname))

@@ -326,3 +326,12 @@ def test_each_tla_tool_run_gets_its_own_java_tmpdir() -> None:
     with _java("java", Path("t.jar")) as a, _java("java", Path("t.jar")) as b:
         dirs = [next(x for x in cmd if x.startswith("-Djava.io.tmpdir=")) for cmd in (a, b)]
         assert dirs[0] != dirs[1] and all(Path(d.split("=", 1)[1]).is_dir() for d in dirs)
+
+
+def test_an_execution_budget_makes_a_campaign_reproducible(loops: Workspace) -> None:
+    target = str(loops.root / "loops.py::isqrt")
+    runs = [
+        fuzz_target(target, loops, budget_s=60, max_executions=400).properties[0] for _ in range(2)
+    ]
+    assert [r.executions for r in runs] == [400, 400]  # stops at the budget, not the clock
+    assert all(r.found is None for r in runs)

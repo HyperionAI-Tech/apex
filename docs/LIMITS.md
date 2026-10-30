@@ -70,6 +70,41 @@ The rest use early returns, indexing, `while`, truthiness, `None` as a running v
 are in fact correct): `fuzzed`, not `proven`. Writing code to the subset is a choice you make; Apex will not
 silently approximate code outside it.
 
+## JavaScript and TypeScript
+
+JS and TS functions are lowered into the same subset as Python, so the table above applies,
+with JavaScript's own rules on top:
+
+- **`number` proofs are conditional.**
+  - A JS `number` is a double, and integer arithmetic is exact only up to 2⁵³ − 1. The Lean
+    model computes with exact integers, so a proof about `number` code transfers only while
+    every intermediate value is a safe integer.
+  - Those proofs are reported `proven_conditional`, with that precondition stated, and never
+    reach exit 0.
+  - Searches skip inputs whose result leaves the safe range, and fidelity inputs are drawn below
+    2²⁶ so products of two stay exact.
+  - An intermediate overflow whose final result is back in range is not detected.
+  - `bigint` is exact, and its proofs can be fully `proven`.
+- **Types are required.** TypeScript annotations, or JSDoc `@param {T}` / `@returns {T}` in
+  plain JS. An untyped function is a gap.
+- **Only exported functions run.** Refutation, fuzzing and the fidelity check all execute the
+  real code in Node, through the module's exports.
+- **Semantics Apex keeps rather than approximates:**
+  - `%` truncates toward zero;
+  - only `Math.floor(a / b)` and `Math.trunc(a / b)` are integer division (a bare `/` is a
+    float);
+  - `===` on arrays is identity, so it's refused in code (in hints it means equal contents);
+  - `==` coerces types, so it's refused;
+  - bitwise operators are 32-bit, so they're refused.
+- **Not modelled:** strings, objects and classes, `this`, `try`, `switch`, indexing, `while`,
+  early returns in loops, default and rest parameters, generators. As in Python, many functions
+  fit after a small rewrite.
+- **Not yet for JS:** CrossHair (Python-only symbolic execution) and TLA+ (async and event-loop
+  concurrency). Fuzzing uses Hypothesis or Jazzer.js.
+- **Agent-written code.** Of six TypeScript functions written by Claude Code and Codex from
+  one-line prompts, four fall inside the subset (as `proven_conditional`, because they use
+  `number`). The other two use a bare `/` or array indexing, and are fuzzed.
+
 ## What refutation can and cannot say
 
 `refuted` is strong: a concrete input that Apex ran on the real Python and watched break the

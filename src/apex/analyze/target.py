@@ -24,6 +24,16 @@ class FunctionInfo:
     module_source: str
     callees: list["FunctionInfo"] = field(default_factory=list)
     """Same-module functions this one calls, transitively, in dependency order."""
+    language: str = "python"
+    """`python`, or `js` (JavaScript / TypeScript): then `node` and `module_tree` are the
+    function lowered to the Python subset (apex.js.lower), and `source` is the real JS."""
+    exported: bool = True
+    """JS only: whether the module exports the function (Apex can only run exported ones)."""
+    numeric: frozenset[str] = frozenset()
+    """JS only: the numeric kinds in the signature, `number` (float-backed) and/or `bigint`."""
+    typed: bool = True
+    """JS only: every parameter and the result carry a TypeScript or JSDoc type."""
+    jsdoc: str | None = None
 
     @property
     def lineno(self) -> int:
@@ -50,7 +60,7 @@ def parse_target(target: str) -> tuple[Path, str]:
     path = Path(path_s)
     if not path.is_file():
         raise TargetError(f"no such file: {path}")
-    if not qualname.isidentifier():
+    if not qualname.isidentifier() or not qualname.isascii():
         raise TargetError(f"only top-level functions are supported in the MVP, got `{qualname}`")
     return path, qualname
 
@@ -61,6 +71,12 @@ def _top_level_functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
 
 def top_level_functions(path: Path) -> list[str]:
     """Names of the top-level functions defined in a module, in source order."""
+    from apex.js import is_js
+
+    if is_js(path):
+        from apex.js.parse import load_module
+
+        return list(load_module(path).functions)
     try:
         tree = ast.parse(path.read_text(), filename=str(path))
     except SyntaxError as e:
@@ -70,6 +86,12 @@ def top_level_functions(path: Path) -> list[str]:
 
 def load_function(target: str) -> FunctionInfo:
     path, qualname = parse_target(target)
+    from apex.js import is_js
+
+    if is_js(path):
+        from apex.js.target import load_js_function
+
+        return load_js_function(path, qualname)
     module_source = path.read_text()
     try:
         tree = ast.parse(module_source, filename=str(path))

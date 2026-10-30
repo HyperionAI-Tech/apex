@@ -9,6 +9,7 @@ principles. This page covers the parts that carry trust, in enough detail to rev
 - [The verdict path](#the-verdict-path)
 - [Spec files are a trust boundary](#spec-files-are-a-trust-boundary)
 - [Translation](#translation)
+- [The JavaScript / TypeScript frontend](#the-javascript--typescript-frontend)
 - [Intent: mining and fusion](#intent-mining-and-fusion)
 - [Statements and approval](#statements-and-approval)
 - [Proof search](#proof-search)
@@ -113,6 +114,50 @@ common identifier, with and without Mathlib.
 
 Leading `assert`s are preconditions, not code. The model leaves them out, and drafted statements
 assume them (partial correctness).
+
+## The JavaScript / TypeScript frontend
+
+`apex.js` gives JS and TS the same pipeline and the same trust story:
+
+1. **Parse** (`apex.js.parse`). tree-sitter's TypeScript grammar, which also reads plain JS,
+   finds the top-level functions (declarations and `const f = (...) =>`), their export status
+   (ESM and CommonJS), their JSDoc, and their types (TypeScript annotations or JSDoc
+   `@param {T}`).
+2. **Lower** (`apex.js.lower`). Each function becomes a function in the Python subset AST, with
+   JavaScript's meaning made explicit:
+   - `%` becomes `__apex_tmod__` (Lean `Int.tmod`);
+   - `Math.floor(a / b)` becomes floor division, and `Math.trunc(a / b)` becomes
+     `__apex_tdiv__` (`Int.tdiv`);
+   - `reduce` becomes `__apex_reduce__` (`List.foldl`), and `map`, `filter`, `some`, `every`,
+     spread and `slice` become their subset forms.
+
+   Impure APIs lower onto constructs the purity classifier already rejects (`console` to
+   `print`, `Math.random` to `random`, `Date` to `time`, `fs` / `process` / `fetch` to `os`,
+   timers and `async` to concurrency). Anything else becomes
+   `__apex_unsupported__("what", "REASON")`, which carries its operands so purity still sees
+   inside it. The translator turns that marker into a gap with the JS line.
+3. **Translate.** The translator, statement drafting, proof search and verdict path are the
+   shared ones. The translator refuses `===` on arrays in lowered JS (identity in JavaScript).
+4. **Execute** (`apex.js.runner`). A Node worker (`runner.mjs`, no npm packages; TypeScript runs
+   through Node's type stripping) imports the module and answers JSON-line calls. A Python proxy
+   makes each exported function a callable, so refutation, fuzzing and the fidelity bridge run
+   unchanged against the real JS:
+   - `bigint` and `number` are encoded faithfully;
+   - a mutated argument is mirrored back into Python;
+   - a thrown error is `JsError`, and a stack overflow is `RecursionError`;
+   - a `number` result outside the safe-integer range is skipped as outside the assumption;
+   - a call over budget kills and restarts the worker.
+5. **Verdicts.** A Lean proof of code on `number` becomes `proven_conditional`, with the added
+   precondition that every intermediate value is a safe integer. `bigint` code can be `proven`.
+6. **Intent** (`apex.js.intent`). Sources are JSDoc `@pre` / `@post` / `@example`, Jest and
+   Vitest `expect(...)`, node:assert, and fast-check properties.
+   - A fast-check call's arguments bind to the function's parameters: a literal argument becomes
+     a premise (`lo === 0`), so the property is not overgeneralized.
+   - JS-syntax hints (`result`, `==>`) are lowered by the same code as the function, so `%` in a
+     hint means what it means in the code.
+7. **Jazzer.js** (`apex.js.jazzer`). Coverage-guided fuzzing runs in Node. The property is
+   emitted back to JavaScript (deep, bigint-aware equality) so it is checked inside the fuzz
+   loop. Every reported input is replayed in Python through the proxy before it counts.
 
 ## Intent: mining and fusion
 

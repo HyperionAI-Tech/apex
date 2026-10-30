@@ -2,8 +2,8 @@
 
 ### Democratizing Formal Verification for the Agentic Era
 
-**Apex checks whether your code does what you said it should, using three verification
-engines behind one honest report:**
+**Apex checks whether your Python, JavaScript or TypeScript code does what you said it should,
+using three verification engines behind one honest report:**
 
 | Engine | What it does | Answers |
 |---|---|---|
@@ -12,7 +12,8 @@ engines behind one honest report:**
 | 🎯 **Fuzzing and refutation** | hammers the *real* code with generated, coverage-guided and symbolic inputs | "Can I find an input that breaks it?" |
 
 You give Apex a function and whatever description of its behaviour you already have: a
-docstring, a few tests, a couple of sentences in plain English. Apex routes each function to the
+docstring or JSDoc, a few tests (pytest, Hypothesis, Jest, Vitest, fast-check), or a couple of
+sentences in plain English. Apex routes each function to the
 engines that fit it. A pure function in the supported subset goes to Lean. Code Lean can't model
 is fuzzed. Concurrent code gets a TLA+ spec. Every engine runs on the same statement of intent,
 and the answers come back in one report:
@@ -52,7 +53,8 @@ failures. Fix the off-by-one and approve the statements, and `clamp` becomes `pr
 lock, and `racy_worker` joins `locked_worker` at `model_checked`. `isqrt` stays `fuzzed`: strong
 evidence, honestly labeled, because Lean can't model its loop.)*
 
-> **Status:** research prototype, MIT-licensed, not on PyPI yet. Start with the
+> **Status:** research prototype for Python and JavaScript / TypeScript, MIT-licensed, not on
+> PyPI yet. Start with the
 > [quickstart](docs/QUICKSTART.md), and read [what Apex cannot prove](docs/LIMITS.md) before
 > relying on a verdict.
 
@@ -72,6 +74,7 @@ evidence, honestly labeled, because Lean can't model its loop.)*
   - [Inside a coding agent](#inside-a-coding-agent-skill-and-mcp)
   - [Fuzzing and refutation](#fuzzing-and-refutation)
   - [TLA+ for concurrent code](#tla-for-concurrent-code)
+  - [JavaScript and TypeScript](#javascript-and-typescript)
   - [In CI](#in-ci)
   - [Configuration](#configuration)
 - [How it works](#how-it-works)
@@ -193,6 +196,8 @@ Requirements, by engine:
 | Lean 4 proofs | [elan](https://github.com/leanprover/elan); about 5 GB of disk once for the pinned toolchain and Mathlib cache, shared by every project |
 | TLA+ model checking | Java 11+; `apex init --tla` fetches the pinned TLC |
 | coverage-guided fuzzing (optional) | the `fuzz` extra (Atheris), built with a libFuzzer-capable clang (Homebrew LLVM on macOS) |
+| JavaScript / TypeScript targets | Node.js 22.6+ (runs TypeScript directly; no npm packages) |
+| coverage-guided JS fuzzing (optional) | npm; `apex init --js` fetches the pinned Jazzer.js |
 | model-assisted proofs and specs (optional) | Claude Code or Codex logged in, or an API key |
 
 Apex is not on PyPI yet; install it from a checkout:
@@ -259,15 +264,16 @@ The [quickstart](docs/QUICKSTART.md) walks through this with real output.
 Apex never infers intent from the code alone; that would only prove the code does what it does.
 It reads the intent you already have, from four sources, and fuses it into one **Intent Model**:
 
-| Source | Where | What Apex reads |
+| Source | Python | JavaScript / TypeScript |
 |---|---|---|
-| Docstring | the function | doctests (examples); `pre:` / `post:` lines (formal properties) |
-| Tests | `test_<module>.py`, next to the module or in `tests/` | `assert f(...) == v` and `parametrize` rows (examples); Hypothesis `@given` tests (properties) |
-| English spec | `<module>.spec.md` | one requirement per list item; a formal reading in backticks makes it checkable |
-| Source | the function | leading `assert`s (preconditions) |
+| Doc comment | docstring: doctests (examples), `pre:` / `post:` lines (formal properties) | JSDoc: `@example`, `@pre` / `@post` |
+| Tests | `test_<module>.py`: `assert f(...) == v`, `parametrize` rows, Hypothesis `@given` | `<module>.test.ts` / `.spec.ts` (or `__tests__/`): Jest / Vitest `expect(f(...)).toBe(v)`, node:assert, fast-check properties |
+| English spec | `<module>.spec.md`: one requirement per list item; a formal reading in backticks makes it checkable | the same |
+| Source | leading `assert`s (preconditions) | leading `if (...) throw` guards and `assert(...)` (preconditions) |
 
-A formal hint is a Python boolean expression over the parameters and `r` (the result, or
-`__return__` in a docstring), with `->` for "implies":
+A formal hint is a boolean expression over the parameters and the result. In Python it's
+Python, with `r` (or `__return__`) for the result and `->` for "implies". In JavaScript it's
+JavaScript, with `result` and `==>`, e.g. `lo <= result && result <= hi`:
 
 ```markdown
 ## clamp
@@ -400,6 +406,49 @@ allows:
 | a real run the spec doesn't allow | `fidelity_failed` |
 | TLC found a violation no real run showed | `unproven`, with TLC's trace |
 
+### JavaScript and TypeScript
+
+Point Apex at a `.ts`, `.mts`, `.js` or `.mjs` file and it works the same way:
+
+```ts
+/**
+ * Limit x to the range [lo, hi].
+ * @pre lo <= hi
+ * @post lo <= result && result <= hi
+ * @post lo <= x && x <= hi ==> result === x
+ * @example clamp(5, 0, 3) // => 3
+ */
+export function clamp(x: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(x, hi));
+}
+```
+
+```sh
+apex check src/                                  # Python and JS/TS files alike
+apex check shapes.ts::clamp
+apex fuzz search.ts::mix --engine jazzer         # coverage-guided JS fuzzing (apex init --js)
+```
+
+**What is the same.** The Lean engine, the search engine, statements, approval, reports, exit
+codes, SARIF, MCP and the skill. A JS function is parsed (tree-sitter) and *lowered* into the
+same subset the Python translator proves things about, so the proofs are real Lean proofs.
+Refutation, fuzzing and the fidelity check always run the **real JavaScript** in Node.
+
+**What JavaScript adds.**
+
+| | |
+|---|---|
+| Intent | JSDoc `@pre` / `@post` / `@example`; Jest and Vitest `expect(f(...)).toBe(v)`; node:assert; fast-check `fc.property(...)` (its bounds become premises); `<module>.spec.md` |
+| Hints | JavaScript expressions: `result` for the return value, `==>` for "implies" |
+| Types | TypeScript, or JSDoc `@param {number} x` / `@returns {number}` in plain JS. An untyped function is a gap that says so. |
+| `number` | A double: integers are exact only up to 2⁵³. Proofs are `proven_conditional`, under the stated precondition that every intermediate value is a safe integer. Searches skip inputs outside it. |
+| `bigint` | Exact. Proofs are fully `proven`. |
+| Semantics kept | `%` truncates (`-3 % 2` is `-1`, which catches the classic `n % 2 === 1` oddness bug). Only `Math.floor(a / b)` and `Math.trunc(a / b)` are integer division. `===` on arrays compares identity, so it's refused. |
+| Refused | `==` (it coerces types), bitwise operators (32-bit), `this`, classes, `try`, `switch`, strings, floats, indexing, `while`, early returns in loops |
+| Impure | `console`, `Math.random`, `Date`, `fs`, `process`, `fetch`, timers, `async`, and mutating an argument, all detected before any code runs |
+| Not exported | A gap: Apex only runs exported functions |
+| Engines | Lean 4 (proofs), Hypothesis and Jazzer.js (fuzzing). CrossHair and TLA+ are Python-only for now. |
+
 ### In CI
 
 ```yaml
@@ -480,7 +529,9 @@ flowchart TB
 **Shared front half**
 
 1. **Analyze.** Resolve the target and classify it: pure or impure (I/O, globals, randomness,
-   floats), concurrent or not, inside the Lean subset or not, and why.
+   floats), concurrent or not, inside the Lean subset or not, and why. A JavaScript or
+   TypeScript function is first parsed and lowered into the same subset the Python frontend
+   produces, with JS semantics made explicit (truncating `%`, safe-integer `number`).
 2. **Fuse intent.** Read docstrings, tests, English specs and leading asserts. Build one Intent
    Model with stable property IDs (P1, P2, ...; E1, ... for examples), and call out conflicts
    between sources.
@@ -536,6 +587,7 @@ The code is organized the same way:
 |---|---|---|
 | Contracts | `apex.core` | verdicts, reason codes, Intent Model, report, config, JSON Schemas |
 | Front half | `apex.analyze`, `apex.intent` | analysis and routing facts; intent mining and fusion |
+| JS frontend | `apex.js` | tree-sitter parsing, lowering to the shared subset, JSDoc/Jest/fast-check mining, the Node bridge, Jazzer.js |
 | 🧮 Lean engine | `apex.translate`, `apex.theorems`, `apex.prove`, `apex.lean` | translation, statements and review, proof search, pinned Lean project and verdict path |
 | 🎯 Search engine | `apex.fidelity` | refutation, fuzzing campaigns, and the fidelity bridge back to the Lean engine |
 | 🔀 TLA+ engine | `apex.tla` | bundles, pinned TLC, run recorder, trace validation, drafting |
@@ -599,19 +651,27 @@ The short version (the full list is in [docs/LIMITS.md](docs/LIMITS.md)):
   - Two threads and two iterations is not N threads.
   - Only invariants are checked, not temporal properties.
   - A spec is only checked against the schedules the runs happened to hit.
+- **JavaScript: `number` proofs are conditional.**
+  - They hold only while every intermediate value is a safe integer; use `bigint` for
+    unconditional proofs.
+  - CrossHair and TLA+ are Python-only for now.
+  - Only exported functions can be run.
 - **All engines: no performance claims.** "Runs in linear time" has no formal reading and stays
   text-only.
 
 ## How well it works
 
-The eval corpus gates every phase:
+The eval corpus gates every phase. It has 171 cases, 126 in Python and 45 in JavaScript /
+TypeScript:
 
-- 49 known-good functions with hand-written Lean reference statements;
-- 33 planted bugs;
-- 15 spec/code conflicts;
-- 15 out-of-scope functions;
-- 10 unedited agent-written functions;
-- 4 concurrent functions with TLA+ bundles.
+| Category | Python | JS / TS |
+|---|---|---|
+| known-good functions, most with hand-written Lean reference statements | 49 | 19 |
+| planted bugs | 33 | 8 |
+| spec/code conflicts | 15 | 3 |
+| out-of-scope functions | 15 | 9 |
+| unedited agent-written functions (Claude Code, Codex) | 10 | 6 |
+| concurrent functions with TLA+ bundles | 4 | |
 
 `uv run python evals/run.py --jobs 4` prints this scoreboard (tactics only, no model):
 
@@ -619,14 +679,15 @@ The eval corpus gates every phase:
 |---|---|
 | **false `proven`** (must be 0) | **0** |
 | **false evidence**: `fuzzed`/`model_checked` on a property that must fail (must be 0) | **0** |
-| cases matching their expected verdicts | 126 / 126 |
-| planted bugs caught with a counterexample | 53 / 53 |
-| spec/code conflicts detected | 18 / 18 |
-| out-of-scope functions with the right reason code | 15 / 15 |
-| drafted statements Lean shows equivalent to the hand-written reference | 56 / 82 |
-| true properties proven | 113 / 217 (tactics alone) |
-| evidence verdicts | 20 `fuzzed`, 3 `model_checked` |
-| median time per function | 7.9 s |
+| cases matching their expected verdicts | 171 / 171 (Python 126/126, JS/TS 45/45) |
+| planted bugs caught with a counterexample | 63 / 63 (two only a fuzzing campaign finds) |
+| spec/code conflicts detected | 22 / 22 |
+| out-of-scope functions with the right reason code | 24 / 24 |
+| drafted statements Lean shows equivalent to the hand-written reference | 67 / 99 |
+| true properties proven (JS `number` ones as `proven_conditional`) | 168 / 294 (tactics alone) |
+| agent-written functions inside the Lean subset | 7 / 16 |
+| evidence verdicts | 24 `fuzzed`, 3 `model_checked` |
+| median time per function | 8.7 s |
 
 With a model in the proof loop (`--provider claude-code`), the earlier 46-case corpus went from
 56/82 to 82/82 true properties proven, with false `proven` still 0. That run hasn't been
@@ -672,6 +733,7 @@ Apex has been built phase by phase against the development handoff:
 | 4 | MCP server and Agent Skill, verified in Claude Code and Codex |
 | 5 | Hardening: the 126-case corpus, quickstart, limits page |
 | 6 | The search and TLA+ engines: fuzzing campaigns, TLA+ model checking for concurrent code |
+| 7 | JavaScript and TypeScript: lowering to the shared subset, the Node bridge, JSDoc / Jest / fast-check intent, Jazzer.js |
 
 Still open:
 

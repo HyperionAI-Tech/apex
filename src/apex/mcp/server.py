@@ -155,7 +155,7 @@ def build_server() -> MCPServer:
         target: str,
         properties: list[str] | None = None,
         seconds: float | None = None,
-        engine: Literal["hypothesis", "atheris"] | None = None,
+        engine: Literal["hypothesis", "atheris", "jazzer"] | None = None,
     ) -> FuzzResult:
         """Fuzz the real Python for `seconds` per property (default: fuzz_budget_s) and record
         the campaign. apex_verify then reports a property Lean could not decide as `fuzzed`

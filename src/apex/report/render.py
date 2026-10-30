@@ -35,7 +35,12 @@ def detail(p: PropertyResult, target: str = "<target>") -> str:
             status = p.review.status if p.review else "pending"
             return f"statement {status}: run `apex review {target} --approve {p.id}` in a terminal"
         case Verdict.PROVEN_CONDITIONAL:
-            return "under added precondition(s): " + "; ".join(p.added_preconditions)
+            pending = (
+                ""
+                if p.review is None or p.review.status == "approved"
+                else f"; statement pending: run `apex review {target} --approve {p.id}`"
+            )
+            return "under added precondition(s): " + "; ".join(p.added_preconditions) + pending
         case Verdict.FUZZED if p.fuzz:
             z = p.fuzz
             skipped = f", {z.skipped} skipped" if z.skipped else ""
@@ -91,12 +96,14 @@ def print_report(report: Report, console: Console | None = None) -> None:
         if f.fidelity:
             ok = "agrees" if f.fidelity.agree else "DISAGREES"
             skipped = (
-                f" ({f.fidelity.skipped} more skipped: too slow or too deep for Python)"
+                f" ({f.fidelity.skipped} more skipped: too slow, too deep, or outside the "
+                "safe-integer range)"
                 if f.fidelity.skipped
                 else ""
             )
+            lang = "JavaScript" if f.language == "js" else "Python"
             console.print(
-                f"  fidelity {f.qualname}: Lean model {ok} with Python on "
+                f"  fidelity {f.qualname}: Lean model {ok} with {lang} on "
                 f"{f.fidelity.inputs_checked} generated inputs{skipped}"
             )
 

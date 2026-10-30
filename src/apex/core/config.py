@@ -47,9 +47,10 @@ class ApexConfig(BaseModel):
         description="Per property: length of a fuzzing campaign (`apex fuzz`; `apex check "
         "--fuzz` overrides it).",
     )
-    fuzz_engine: Literal["hypothesis", "atheris"] = Field(
+    fuzz_engine: Literal["hypothesis", "atheris", "jazzer"] = Field(
         default="hypothesis",
-        description="hypothesis (pure Python) or atheris (coverage-guided; the `fuzz` extra).",
+        description="hypothesis (any language), atheris (coverage-guided Python; the `fuzz` "
+        "extra) or jazzer (coverage-guided JavaScript; `apex init --js`).",
     )
     confidence_floor: float = Field(
         default=0.6, ge=0, le=1, description="Below this, a property is flagged SPEC_AMBIGUOUS."

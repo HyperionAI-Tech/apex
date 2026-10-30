@@ -60,7 +60,8 @@
         "engine": {
           "enum": [
             "hypothesis",
-            "atheris"
+            "atheris",
+            "jazzer"
           ],
           "title": "Engine",
           "type": "string"
@@ -182,7 +183,8 @@
     "engine": {
       "enum": [
         "hypothesis",
-        "atheris"
+        "atheris",
+        "jazzer"
       ],
       "title": "Engine",
       "type": "string"

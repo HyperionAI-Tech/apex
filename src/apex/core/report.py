@@ -42,7 +42,7 @@ class FuzzEvidence(_Strict):
     hint: str
     """The formal hint the campaign checked; evidence is stale once it changes."""
     function_sha256: str
-    engine: Literal["hypothesis", "atheris"]
+    engine: Literal["hypothesis", "atheris", "jazzer"]
     executions: int
     seconds: float
     skipped: int = 0
@@ -155,6 +155,8 @@ class FunctionResult(_Strict):
     sha256: str
     line: int | None = None
     """Line of the `def`, for renderers that point at source (SARIF)."""
+    language: Literal["python", "js"] = "python"
+    """The language of the real code (`js` covers JavaScript and TypeScript)."""
     purity: Literal["pure", "impure", "unknown"] = "unknown"
     gap: Gap | None = None
     """Set when the whole function is out of scope (impure, or outside the translatable subset),
