@@ -6,7 +6,7 @@ description: >-
   or changed a pure Python function and correctness matters; or when asked for a
   gap report, counterexample, or proof of a property such as bounds, sorting,
   or invariants. Produces proven / refuted / gap verdicts from Apex, never your own.
-license: Apache-2.0
+license: MIT
 compatibility: Requires Python 3.12+, uv, and network access on first run to fetch the Lean toolchain and Mathlib cache (several GB of disk).
 metadata:
   author: hyperion-ai

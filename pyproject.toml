@@ -2,10 +2,11 @@
 # Distribution name is a placeholder: "apex" is likely taken on PyPI (open decision, handoff section 12).
 name = "apex-verify"
 version = "0.1.0.dev0"
-description = "Turn Python intent into Lean 4 theorems and prove them, or explain exactly why not."
+description = "Democratizing formal verification for the agentic era: prove Python with Lean 4, or explain exactly why not."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "pydantic>=2.7",
     "typer>=0.12",
