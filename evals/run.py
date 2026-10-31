@@ -364,6 +364,22 @@ def scoreboard(results: list[CaseResult], *, full: bool = False) -> dict:
     }
 
 
+def _exit_with_parent() -> None:
+    """Pool workers outlive a killed parent on macOS (no parent-death signal), and a worker
+    stuck in a case would then spin for days. Each worker exits once its parent is gone."""
+    import os
+    import threading
+
+    parent = os.getppid()
+
+    def watch() -> None:
+        while os.getppid() == parent:
+            time.sleep(2)
+        os._exit(1)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", help="Only run cases whose target contains this text.")
@@ -388,7 +404,7 @@ def main() -> int:
         llm = get_provider(ApexConfig(model_provider=args.provider))
     run = partial(run_case, project=project, llm=llm, retries=args.retries)
     if args.jobs > 1:  # processes: Hypothesis is not thread-safe
-        with ProcessPoolExecutor(max_workers=args.jobs) as pool:
+        with ProcessPoolExecutor(max_workers=args.jobs, initializer=_exit_with_parent) as pool:
             results = list(pool.map(run, cases))
     else:
         results = [run(c) for c in cases]
