@@ -11,9 +11,26 @@ behavior. It uses three verification engines and gives one report.
 | TLA+ model checker (TLC) | Examines all thread interleavings of a concurrent function, within set bounds. | Can a thread schedule break the property? |
 | Fuzzing and refutation | Runs the real code with generated, coverage-guided and symbolic inputs. | Is there an input that breaks the property? |
 
-You supply a function and the intent that you already have. The intent can be a docstring or
-JSDoc, tests (pytest, Hypothesis, Jest, Vitest, fast-check), or English sentences. Apex sends
-each function to the applicable engines:
+**Apex uses the intent that your project already has.** You do not write a formal
+specification. Apex reads the intent from these sources and combines it into one set of
+properties:
+
+- **Specifications in English.** A Markdown file next to the module (`<module>.spec.md`) with
+  one requirement for each list item.
+- **Documentation in the code.** Docstrings and JSDoc: examples, doctests, `@example` tags, and
+  `pre:` and `post:` lines.
+- **Tests.** pytest, Hypothesis, Jest, Vitest, node:assert and fast-check.
+- **The code.** Assertions and guards at the start of a function (preconditions).
+
+When two sources disagree, Apex reports the conflict. It does not select one source.
+
+**Apex operates in your coding agent.** One command (`apex skill install --with-mcp`) installs
+the `apex-verify` Agent Skill and the `apex` MCP server for Claude Code, Codex, Gemini CLI,
+Cursor and VS Code (Copilot). The agent writes the code, Apex verifies it, and the agent uses
+the counterexample to correct the code. This cycle is tested end to end in Claude Code and
+Codex. Apex also operates from the command line and in CI (exit codes and SARIF).
+
+Apex sends each function to the applicable engines:
 
 - A pure function in the supported subset goes to Lean 4.
 - A pure function outside the subset goes to fuzzing and refutation.
@@ -119,9 +136,6 @@ Each verdict tells the strength of its result:
 
 An AI model can make Apex faster. A model cannot cause a `proven` verdict. Only a Lean 4 proof
 of an approved statement can cause it.
-
-Apex runs from the command line, in CI, and in coding agents. Its agent integration is tested
-end to end in Claude Code and Codex. It also installs for Gemini CLI, Cursor and VS Code.
 
 Apex is for these users:
 
